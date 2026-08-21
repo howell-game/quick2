@@ -1,0 +1,23 @@
+{
+    "general": [
+      {
+        "question": "How do I reset my password?",
+        "answer": "Go to the login page, click on 'Forgot Password', and follow the instructions."
+      },
+      {
+        "question": "What is the minimum investment amount?",
+        "answer": "The minimum investment amount is N200."
+      }
+    ],
+    "withdrawals": [
+      {
+        "question": "How long does a withdrawal take?",
+        "answer": "Withdrawals are processed within 24-48 hours."
+      },
+      {
+        "question": "What are the withdrawal fees?",
+        "answer": "There is a 2% transaction fee on all withdrawals."
+      }
+    ]
+  }
+  

@@ -1,0 +1,23 @@
+{
+  "name": "quickstock9ja",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+
+  "scripts": {
+    "install": "npm install --prefix backend && npm install --prefix frontend",
+    "heroku-postbuild": "npm run build --prefix frontend",
+    "start": "node backend/index.js",
+    "build": "npm run build --prefix frontend"
+  },
+
+  "engines": {
+    "node":  "22.x",
+    "npm": "9.x"
+  },
+
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
