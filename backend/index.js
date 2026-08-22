@@ -29,10 +29,9 @@ const server = http.createServer(app);  // ✅ Create HTTP server
 app.use(express.json());
 app.use(cors({
   origin: [
-    "https://quickstock9ja.site",                   // ✅ add this
-    "https://www.quickstock9ja.site",  
-    "https://quickstock9ja-f10f5ba80f76.herokuapp.com",  // ✅ Correct frontend URL// CORS updated: 2025-04-17
+    "https://quickstock9ja.site",                   // ✅ add this // ✅ Correct frontend URL// CORS updated: 2025-04-17
      'https://quickstock9ja.onrender.com',
+     "https://howell-game.github.io",
     "http://localhost:5173",  // ✅ Allow Vue.js development frontend
     "http://localhost:3000"   // ✅ Allow local testing with serve -s dist
   ],
