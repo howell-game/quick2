@@ -32,26 +32,159 @@ async function handleReferralTracking(referralCode, newUserId) {
 
 // User Signup
 router.post('/signup', async (req, res) => {
+
+  console.log("🟢 SIGNUP REQUEST RECEIVED");
+
   try {
+
     const { name, email, password, ref } = req.body;
-    const userId = `QS9-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) return res.status(400).json({ error: "This email already exists." });
+    console.log("📩 Signup details received:", {
+      name,
+      email,
+      ref
+    });
 
-    const user = await User.create({ name, email, password, userId, balance: 250, demoBalance: 1000 });
-     // 👇 Call referral handler here
-     if (ref) {
-      await handleReferralTracking(ref, user.userId);
+
+    // CREATE USER ID
+    const userId =
+      `QS9-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    console.log("🆔 Generated userId:", userId);
+
+
+    // CHECK IF EMAIL EXISTS
+    console.log("🔍 Checking if email already exists...");
+
+    const existingUser =
+      await User.findOne({
+        where: { email }
+      });
+
+
+    if (existingUser) {
+
+      console.log(
+        "⚠️ Signup stopped: Email already exists:",
+        email
+      );
+
+      return res.status(400).json({
+        error: "This email already exists."
+      });
+
     }
 
-    const verificationLink = `${process.env.BASE_URL}/auth/verify/${userId}`;
-    await sendVerificationEmail(email, verificationLink);
 
-    res.status(201).json({ message: 'User created. Check your email to verify.' });
+    // CREATE USER
+    console.log("👤 Creating user...");
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      userId,
+      balance: 250,
+      demoBalance: 1000
+    });
+
+    console.log(
+      "✅ USER CREATED SUCCESSFULLY:",
+      user.userId
+    );
+
+
+    // HANDLE REFERRAL
+    if (ref) {
+
+      console.log(
+        "🎁 Processing referral:",
+        ref
+      );
+
+      await handleReferralTracking(
+        ref,
+        user.userId
+      );
+
+      console.log(
+        "✅ Referral processing completed"
+      );
+
+    } else {
+
+      console.log(
+        "ℹ️ No referral code provided"
+      );
+
+    }
+
+
+    // CREATE VERIFICATION LINK
+    console.log(
+      "🔗 Creating verification link..."
+    );
+
+    const verificationLink =
+      `${process.env.BASE_URL}/auth/verify/${userId}`;
+
+    console.log(
+      "🔗 Verification link:",
+      verificationLink
+    );
+
+
+    // SEND VERIFICATION EMAIL
+    console.log(
+      "📧 Attempting to send verification email to:",
+      email
+    );
+
+    await sendVerificationEmail(
+      email,
+      verificationLink
+    );
+
+    console.log(
+      "✅ VERIFICATION EMAIL SENT SUCCESSFULLY"
+    );
+
+
+    // SEND RESPONSE TO FRONTEND
+    console.log(
+      "🚀 Sending success response to frontend..."
+    );
+
+    return res.status(201).json({
+      message:
+        "User created. Check your email to verify."
+    });
+
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+
+    console.error(
+      "❌ SIGNUP ERROR:"
+    );
+
+    console.error(error);
+
+    console.error(
+      "❌ Error message:",
+      error.message
+    );
+
+    console.error(
+      "❌ Error stack:",
+      error.stack
+    );
+
+    return res.status(500).json({
+      error: error.message
+    });
+
   }
+
 });
 
 // Shareholder Signup
