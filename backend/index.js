@@ -46,11 +46,11 @@ app.use((req, res, next) => {
 
   const host = req.headers.host;
 
-  if (host === "quickstock9ja.site") {
+  if (host === "trendgame9ja.site") {
 
     return res.redirect(
       301,
-      `https://www.quickstock9ja.site${req.originalUrl}`
+      `https://www.trendgame9ja.site${req.originalUrl}`
     );
 
   }
@@ -129,9 +129,9 @@ app.get("/test-smtp", async (req, res) => {
   });
 
   socket.connect(
-    465,
-    "smtp.gmail.com"
-  );
+  587,
+  "smtp.gmail.com"
+);
 
 });
 
