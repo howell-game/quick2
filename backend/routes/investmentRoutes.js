@@ -765,7 +765,7 @@ router.get('/receipt', async (req, res) => {
   } catch (error) {
 
     console.error(
-      'Error fetching investment receipts:',
+      'Error fetching selection receipts:',
       error
     );
 
@@ -1145,7 +1145,7 @@ async function submitInvestmentSelectionDemo(
       success: true,
 
       message:
-        "Investment saved successfully",
+        "Selections saved successfully",
 
       investmentCode
 
@@ -1339,7 +1339,7 @@ router.post(
       return res.status(201).json({
 
         message:
-          "Investment saved successfully",
+          "Selection saved successfully",
 
         investmentCode
 
@@ -1462,7 +1462,7 @@ router.post(
         success: true,
 
         message:
-          "Investment saved successfully",
+          "selections saved successfully",
 
         investmentCode
 
@@ -1472,7 +1472,7 @@ router.post(
     } catch (error) {
 
       console.error(
-        "❌ Demo investment submission error:",
+        "❌ Demo selection submission error:",
         error
       );
 
@@ -1658,7 +1658,7 @@ router.get('/investment/:investmentCode', async (req, res) => {
     });
 
     if (!investment) {
-      return res.status(404).json({ message: 'Investment not found' });
+      return res.status(404).json({ message: 'selections not found' });
     }
 
     res.status(200).json(investment);
@@ -1745,7 +1745,7 @@ async function submitInvestmentsDemo(investments) {
     return {
       success: true,
       status: 201,
-      message: "Investments successfully saved"
+      message: "Selections successfully saved"
     };
 
 
@@ -1775,7 +1775,7 @@ router.post("/submit-investment", async (req, res) => {
     ) {
 
       return res.status(400).json({
-        message: "Invalid investments data"
+        message: "Invalid selection data"
       });
 
     }
@@ -1872,7 +1872,7 @@ router.post("/submit-investment", async (req, res) => {
       return res.status(201).json({
 
         message:
-          "Investments successfully saved",
+          "Selections successfully saved",
 
         savedInvestments
 
