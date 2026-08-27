@@ -14,6 +14,7 @@ const {
     resolveAccount,
     transfer,
     verifyTransaction,
+    getTransfer,
 } = require("../services/flutterwaveService");
 
 const {
@@ -1010,6 +1011,437 @@ await Transaction.create({
             error:
 
                 "Unable to process withdrawal",
+
+        });
+
+    }
+
+});
+
+// ======================================================
+// ADMIN: VERIFY WITHDRAWAL STATUS FROM FLUTTERWAVE
+// ======================================================
+
+router.put("/admin/transactions/:id/verify-withdrawal", async (req, res) => {
+
+    try {
+
+        const transactionId = req.params.id;
+
+        console.log(
+            "🔎 Admin requested withdrawal verification:",
+            transactionId
+        );
+
+
+        // ==================================================
+        // FIND TRANSACTION
+        // ==================================================
+
+        const transaction = await Transaction.findByPk(
+            transactionId
+        );
+
+
+        if (!transaction) {
+
+            console.log(
+                "❌ Transaction not found:",
+                transactionId
+            );
+
+            return res.status(404).json({
+
+                error: "Transaction not found",
+
+            });
+
+        }
+
+
+        // ==================================================
+        // MAKE SURE THIS IS A WITHDRAWAL
+        // ==================================================
+
+        if (
+            String(transaction.transactionType)
+                .toLowerCase() !== "withdrawal"
+        ) {
+
+            return res.status(400).json({
+
+                error: "This transaction is not a withdrawal",
+
+            });
+
+        }
+
+
+        // ==================================================
+        // MAKE SURE FLUTTERWAVE ID EXISTS
+        // ==================================================
+
+        if (!transaction.flutterwaveId) {
+
+            console.log(
+                "❌ No Flutterwave transfer ID found for transaction:",
+                transaction.id
+            );
+
+            return res.status(400).json({
+
+                error:
+                    "Flutterwave transfer ID is missing for this withdrawal",
+
+            });
+
+        }
+
+
+        console.log(
+            "📡 Flutterwave transfer ID:",
+            transaction.flutterwaveId
+        );
+
+
+        // ==================================================
+        // CHECK CURRENT DATABASE STATUS
+        // ==================================================
+
+        console.log(
+            "📊 Current database status:",
+            transaction.status
+        );
+
+
+        // ==================================================
+        // DO NOT REFUND TWICE
+        // ==================================================
+
+        if (
+            transaction.status === "failed" ||
+            transaction.status === "cancelled"
+        ) {
+
+            return res.json({
+
+                success: true,
+
+                message:
+                    "This withdrawal has already been resolved",
+
+                transaction,
+
+            });
+
+        }
+
+
+        // ==================================================
+        // ASK FLUTTERWAVE FOR THE REAL STATUS
+        // ==================================================
+
+        const flutterwaveResponse =
+            await getTransfer(
+                transaction.flutterwaveId
+            );
+
+
+        console.log(
+            "📥 Flutterwave verification result:",
+            JSON.stringify(
+                flutterwaveResponse,
+                null,
+                2
+            )
+        );
+
+
+        // ==================================================
+        // GET TRANSFER DATA
+        // ==================================================
+
+        const transferData =
+            flutterwaveResponse.data || {};
+
+
+        const flutterwaveStatus =
+            normalizeStatus(
+                transferData.status
+            );
+
+
+        console.log(
+            "📌 Normalized Flutterwave status:",
+            flutterwaveStatus
+        );
+
+
+        // ==================================================
+        // SAVE FLUTTERWAVE RESPONSE
+        // ==================================================
+
+        transaction.metadata =
+            flutterwaveResponse;
+
+
+        transaction.flutterwaveId =
+            transferData.id ||
+            transaction.flutterwaveId;
+
+
+        transaction.processorResponse =
+            transferData.complete_message ||
+            transferData.processor_response ||
+            flutterwaveResponse.message ||
+            null;
+
+
+        transaction.gatewayResponse =
+            transferData.status ||
+            null;
+
+
+        // ==================================================
+        // SUCCESSFUL
+        // ==================================================
+
+        if (
+            flutterwaveStatus === "successful"
+        ) {
+
+            console.log(
+                "✅ Flutterwave says withdrawal is SUCCESSFUL"
+            );
+
+
+            transaction.status =
+                "successful";
+
+            transaction.verified =
+                true;
+
+            transaction.verifiedAt =
+                new Date();
+
+
+            await transaction.save();
+
+
+            return res.json({
+
+                success: true,
+
+                message:
+                    "Withdrawal verified as successful",
+
+                status:
+                    "successful",
+
+                transaction,
+
+            });
+
+        }
+
+
+        // ==================================================
+        // FAILED / CANCELLED
+        // ==================================================
+
+        if (
+            flutterwaveStatus === "failed" ||
+            flutterwaveStatus === "cancelled"
+        ) {
+
+            console.log(
+                "⚠️ Flutterwave says withdrawal failed/cancelled."
+            );
+
+
+            /*
+            IMPORTANT:
+
+            The withdrawal code already deducted
+            the money from the user's balance.
+
+            Therefore we refund the user here.
+
+            We only reach this block if the transaction
+            has NOT already been marked failed/cancelled,
+            preventing a second refund.
+            */
+
+
+            const dbTransaction =
+                await sequelize.transaction();
+
+
+            try {
+
+                await refundUser(
+
+                    transaction.userId,
+
+                    transaction.amount,
+
+                    dbTransaction
+
+                );
+
+
+                transaction.status =
+                    flutterwaveStatus === "cancelled"
+                        ? "cancelled"
+                        : "failed";
+
+
+                transaction.verified =
+                    true;
+
+
+                transaction.verifiedAt =
+                    new Date();
+
+
+                await transaction.save({
+
+                    transaction:
+                        dbTransaction,
+
+                });
+
+
+                await dbTransaction.commit();
+
+
+                console.log(
+                    "💰 User refunded:",
+                    transaction.userId,
+                    transaction.amount
+                );
+
+
+                return res.json({
+
+                    success: true,
+
+                    message:
+                        `Withdrawal ${transaction.status} and user refunded`,
+
+                    status:
+                        transaction.status,
+
+                    refunded:
+                        true,
+
+                    transaction,
+
+                });
+
+            }
+
+            catch (refundError) {
+
+                await dbTransaction.rollback();
+
+                throw refundError;
+
+            }
+
+        }
+
+
+        // ==================================================
+        // STILL PROCESSING / PENDING
+        // ==================================================
+
+        if (
+            flutterwaveStatus === "processing"
+        ) {
+
+            console.log(
+                "⏳ Flutterwave withdrawal is still processing."
+            );
+
+
+            transaction.status =
+                "processing";
+
+
+            await transaction.save();
+
+
+            return res.json({
+
+                success: true,
+
+                message:
+                    "Withdrawal is still processing",
+
+                status:
+                    "processing",
+
+                refunded:
+                    false,
+
+                transaction,
+
+            });
+
+        }
+
+
+        // ==================================================
+        // UNKNOWN STATUS
+        // ==================================================
+
+        console.log(
+            "⚠️ Unknown Flutterwave transfer status:",
+            transferData.status
+        );
+
+
+        await transaction.save();
+
+
+        return res.json({
+
+            success: true,
+
+            message:
+                "Flutterwave returned an unrecognized status",
+
+            status:
+                transferData.status || "unknown",
+
+            refunded:
+                false,
+
+            transaction,
+
+        });
+
+
+    }
+
+    catch (err) {
+
+        console.error(
+            "❌ Withdrawal verification failed:"
+        );
+
+        console.error(
+            err.response?.data ||
+            err
+        );
+
+
+        return res.status(500).json({
+
+            error:
+                err.response?.data?.message ||
+                "Unable to verify withdrawal with Flutterwave",
 
         });
 

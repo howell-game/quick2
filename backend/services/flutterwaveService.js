@@ -81,6 +81,34 @@ async function verifyTransaction(transactionId) {
 
 }
 
+
+// ======================================================
+// GET TRANSFER STATUS FROM FLUTTERWAVE
+// ======================================================
+
+async function getTransfer(transferId) {
+
+    console.log(
+        "🔎 Checking Flutterwave transfer:",
+        transferId
+    );
+
+    const response = await axios.get(
+
+        `https://api.flutterwave.com/v3/transfers/${transferId}`,
+
+        { headers }
+
+    );
+
+    console.log(
+        "📡 Flutterwave transfer response:",
+        response.data
+    );
+
+    return response.data;
+
+}
 module.exports = {
 
     createPayment,
@@ -88,5 +116,6 @@ module.exports = {
     resolveAccount,
     transfer,
     verifyTransaction,
+    getTransfer,
 
 };
