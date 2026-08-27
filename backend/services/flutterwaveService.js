@@ -67,9 +67,26 @@ async function transfer(data) {
     return response.data;
 }
 
+async function verifyTransaction(transactionId) {
+
+    const response = await axios.get(
+
+        `https://api.flutterwave.com/v3/transactions/${transactionId}/verify`,
+
+        { headers }
+
+    );
+
+    return response.data;
+
+}
+
 module.exports = {
+
     createPayment,
     getBanks,
     resolveAccount,
     transfer,
+    verifyTransaction,
+
 };

@@ -13,6 +13,7 @@ const {
     createPayment,
     resolveAccount,
     transfer,
+    verifyTransaction,
 } = require("../services/flutterwaveService");
 
 const {
@@ -127,6 +128,392 @@ async function refundUser(userId, amount, dbTransaction = null) {
     });
 }
 
+
+// =========================================
+// VERIFY FLUTTERWAVE DEPOSIT
+// =========================================
+
+async function verifyAndUpdateDeposit(
+    transactionId,
+    expectedReference = null
+) {
+
+    console.log(
+        "🔍 Starting Flutterwave verification:",
+        transactionId
+    );
+
+
+    // -----------------------------------------
+    // 1. VERIFY DIRECTLY WITH FLUTTERWAVE
+    // -----------------------------------------
+
+    const flutterwaveResponse =
+        await verifyTransaction(transactionId);
+
+
+    const paymentData =
+        flutterwaveResponse.data;
+
+
+    if (!paymentData) {
+
+        throw new Error(
+            "Flutterwave returned no transaction data"
+        );
+
+    }
+
+
+    console.log(
+        "📦 Flutterwave verification response:",
+        {
+            id: paymentData.id,
+            status: paymentData.status,
+            tx_ref: paymentData.tx_ref,
+            amount: paymentData.amount,
+        }
+    );
+
+
+    // -----------------------------------------
+    // 2. GET OUR REFERENCE
+    // -----------------------------------------
+
+    const reference =
+        paymentData.tx_ref;
+
+
+    if (!reference) {
+
+        throw new Error(
+            "Flutterwave transaction has no reference"
+        );
+
+    }
+
+
+    // -----------------------------------------
+    // 3. SECURITY CHECK
+    //
+    // If the callback supplied an expected
+    // reference, it must match Flutterwave's
+    // verified reference.
+    // -----------------------------------------
+
+    if (
+        expectedReference &&
+        reference !== expectedReference
+    ) {
+
+        throw new Error(
+            "Transaction reference mismatch"
+        );
+
+    }
+
+
+    // -----------------------------------------
+    // 4. FIND OUR TRANSACTION
+    // -----------------------------------------
+
+    const transaction =
+        await Transaction.findOne({
+
+            where: {
+
+                reference,
+
+                transactionType: "deposit",
+
+            },
+
+        });
+
+
+    if (!transaction) {
+
+        throw new Error(
+            `Transaction not found: ${reference}`
+        );
+
+    }
+
+
+    // -----------------------------------------
+    // 5. PREVENT DOUBLE CREDITING
+    // -----------------------------------------
+
+    if (transaction.verified) {
+
+        console.log(
+            "ℹ️ Transaction already verified:",
+            reference
+        );
+
+
+        return {
+
+            success: true,
+
+            alreadyVerified: true,
+
+            transaction,
+
+        };
+
+    }
+
+
+    // -----------------------------------------
+    // 6. CHECK PAYMENT STATUS
+    // -----------------------------------------
+
+    const status =
+        normalizeStatus(
+            paymentData.status
+        );
+
+
+    if (status !== "successful") {
+
+        console.log(
+            "⚠️ Payment is not successful:",
+            status
+        );
+
+
+        transaction.status =
+            status === "cancelled"
+                ? "cancelled"
+                : status === "failed"
+                    ? "failed"
+                    : "pending";
+
+
+        transaction.metadata =
+            paymentData;
+
+
+        await transaction.save();
+
+
+        return {
+
+            success: false,
+
+            alreadyVerified: false,
+
+            transaction,
+
+        };
+
+    }
+
+
+    // -----------------------------------------
+    // 7. IMPORTANT SECURITY CHECKS
+    // -----------------------------------------
+
+    if (
+        Number(paymentData.amount) !==
+        Number(transaction.amount)
+    ) {
+
+        throw new Error(
+            "Payment amount does not match transaction amount"
+        );
+
+    }
+
+
+    if (
+        paymentData.currency !==
+        transaction.currency
+    ) {
+
+        throw new Error(
+            "Payment currency does not match"
+        );
+
+    }
+
+
+    // -----------------------------------------
+    // 8. START DATABASE TRANSACTION
+    // -----------------------------------------
+
+    const dbTransaction =
+        await sequelize.transaction();
+
+
+    try {
+
+        // -------------------------------------
+        // LOCK TRANSACTION AGAIN
+        //
+        // This protects against the webhook
+        // and payment callback running at the
+        // same time.
+        // -------------------------------------
+
+        const lockedTransaction =
+            await Transaction.findOne({
+
+                where: {
+
+                    id: transaction.id,
+
+                },
+
+                transaction: dbTransaction,
+
+                lock:
+                    dbTransaction.LOCK.UPDATE,
+
+            });
+
+
+        // -------------------------------------
+        // CHECK AGAIN AFTER LOCKING
+        // -------------------------------------
+
+        if (lockedTransaction.verified) {
+
+            await dbTransaction.commit();
+
+
+            console.log(
+                "ℹ️ Transaction was verified by another process:",
+                reference
+            );
+
+
+            return {
+
+                success: true,
+
+                alreadyVerified: true,
+
+                transaction:
+                    lockedTransaction,
+
+            };
+
+        }
+
+
+        // -------------------------------------
+        // CREDIT USER
+        // -------------------------------------
+
+        await creditUser(
+
+            lockedTransaction.userId,
+
+            lockedTransaction.amount,
+
+            dbTransaction
+
+        );
+
+
+        // -------------------------------------
+        // UPDATE TRANSACTION
+        // -------------------------------------
+
+        lockedTransaction.flutterwaveId =
+            String(paymentData.id);
+
+
+        lockedTransaction.paymentType =
+            paymentData.payment_type ||
+            lockedTransaction.paymentType;
+
+
+        lockedTransaction.processorResponse =
+            paymentData.processor_response ||
+            flutterwaveResponse.message ||
+            null;
+
+
+        lockedTransaction.gatewayResponse =
+            paymentData.narration ||
+            null;
+
+
+        lockedTransaction.metadata =
+            paymentData;
+
+
+        lockedTransaction.status =
+            "successful";
+
+
+        lockedTransaction.verified =
+            true;
+
+
+        lockedTransaction.verifiedAt =
+            new Date();
+
+
+        lockedTransaction.paidAt =
+            paymentData.created_at
+                ? new Date(paymentData.created_at)
+                : new Date();
+
+
+        await lockedTransaction.save({
+
+            transaction:
+                dbTransaction,
+
+        });
+
+
+        // -------------------------------------
+        // COMMIT EVERYTHING
+        // -------------------------------------
+
+        await dbTransaction.commit();
+
+
+        console.log(
+            "✅ Deposit verified and user credited:",
+            {
+                reference,
+                userId:
+                    lockedTransaction.userId,
+                amount:
+                    lockedTransaction.amount,
+            }
+        );
+
+
+        return {
+
+            success: true,
+
+            alreadyVerified: false,
+
+            transaction:
+                lockedTransaction,
+
+        };
+
+    }
+
+    catch (error) {
+
+        await dbTransaction.rollback();
+
+        throw error;
+
+    }
+
+}
+
 router.get("/banks", async (req, res) => {
 
     try {
@@ -221,7 +608,7 @@ router.post("/deposit", async (req, res) => {
             currency: "NGN",
 
             redirect_url:
-                `${FRONTEND_URL}/#/payment-success`,
+            `${process.env.BASE_URL}/api/transactions/payment-callback`,
 
             customer: {
 
@@ -798,6 +1185,148 @@ async function handleWithdrawal(
     }
 
 }
+
+// =========================================
+// FLUTTERWAVE PAYMENT CALLBACK
+// =========================================
+
+router.get(
+    "/payment-callback",
+
+    async (req, res) => {
+
+        try {
+
+            console.log(
+                "🔔 Flutterwave payment callback received"
+            );
+
+
+            console.log(
+                "📦 Callback query:",
+                req.query
+            );
+
+
+            const transactionId =
+                req.query.transaction_id;
+
+
+            const reference =
+                req.query.tx_ref;
+
+
+            const status =
+                normalizeStatus(
+                    req.query.status
+                );
+
+
+            // ---------------------------------
+            // No transaction ID
+            // ---------------------------------
+
+            if (!transactionId) {
+
+                console.log(
+                    "❌ No transaction ID received from Flutterwave"
+                );
+
+
+                return res.redirect(
+
+                    `${FRONTEND_URL}/#/payment-success?status=failed`
+
+                );
+
+            }
+
+
+            // ---------------------------------
+            // Verify payment directly with
+            // Flutterwave.
+            //
+            // We do NOT trust the status from
+            // the browser query.
+            // ---------------------------------
+
+            const result =
+                await verifyAndUpdateDeposit(
+
+                    transactionId,
+
+                    reference
+
+                );
+
+
+            // ---------------------------------
+            // SUCCESS
+            // ---------------------------------
+
+            if (result.success) {
+
+                console.log(
+                    "✅ Callback verification successful"
+                );
+
+
+                return res.redirect(
+
+                    `${FRONTEND_URL}/#/payment-success` +
+
+                    `?status=successful` +
+
+                    `&tx_ref=${encodeURIComponent(reference || "")}`
+
+                );
+
+            }
+
+
+            // ---------------------------------
+            // NOT SUCCESSFUL
+            // ---------------------------------
+
+            console.log(
+                "⚠️ Payment callback finished but payment was not successful:",
+                status
+            );
+
+
+            return res.redirect(
+
+                `${FRONTEND_URL}/#/payment-success` +
+
+                `?status=${encodeURIComponent(status)}` +
+
+                `&tx_ref=${encodeURIComponent(reference || "")}`
+
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "❌ Payment callback verification failed:",
+                error.response?.data ||
+                error.message ||
+                error
+            );
+
+
+            return res.redirect(
+
+                `${FRONTEND_URL}/#/payment-success?status=failed`
+
+            );
+
+        }
+
+    }
+
+);
 
 const sequelize = require("../db");
 
