@@ -464,7 +464,7 @@ async function DemoupdateInvestmentSelectionStatusToCompleted1d() {
 }
 
 
-const AUTO_USER_ID = 'QS9-1785612168272-910'; // Replace this with actual userId
+const AUTO_USER_ID = 'QS9-1787589138217-122'; // Replace this with actual userId
 const TIMEFRAME = '5m';
 let usedCategories = [];
 
