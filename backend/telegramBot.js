@@ -19,6 +19,9 @@ console.log("🤖 TrendGame9ja Telegram bot started.");
 // ======================================================
 // /start
 // ======================================================
+bot.on("message", async (ctx) => {
+    console.log("📩 Telegram message received:", ctx.message?.text);
+});
 
 bot.command("start", async (ctx) => {
 
