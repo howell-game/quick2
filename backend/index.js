@@ -2,6 +2,7 @@ const express = require("express");
 const path = require('path');
 const cors = require("cors");
 require("dotenv").config();
+require("./telegramBot");
 require("./cron/bankCron");
 const cron = require("node-cron");
 const http = require("http");  // ✅ Required for WebSocket
