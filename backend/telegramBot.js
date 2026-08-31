@@ -3,8 +3,8 @@ const { Bot } = require("node-telegram-bot-api");
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
 if (!token) {
-    console.error("❌ TELEGRAM_BOT_TOKEN is missing.");
-    process.exit(1);
+console.error("❌ TELEGRAM_BOT_TOKEN is missing.");
+process.exit(1);
 }
 
 // ======================================================
@@ -13,20 +13,32 @@ if (!token) {
 
 const bot = new Bot(token);
 
-console.log("🤖 TrendGame9ja Telegram bot started.");
-
+console.log("🤖 TrendGame9ja Telegram bot created.");
 
 // ======================================================
-// /start
+// ALL MESSAGES
 // ======================================================
+
 bot.on("message", async (ctx) => {
-    console.log("📩 Telegram message received:", ctx.message?.text);
-});
 
-bot.command("start", async (ctx) => {
 
-    await ctx.reply(
-        `👋 Hello ${ctx.from?.first_name || "Naija"}!
+const text = ctx.message?.text;
+
+console.log("📩 MESSAGE RECEIVED:", text);
+
+// ==================================================
+// /start
+// ==================================================
+
+if (text === "/start") {
+
+    console.log("🚀 /start received.");
+
+    try {
+
+        await ctx.reply(
+            `👋 Hello ${ctx.from?.first_name || "Naija"}!
+
 
 🎮 Welcome to TrendGame9ja!
 
@@ -41,34 +53,43 @@ TrendGame is a gaming platform where you try to decode the next trend across dif
 You can also try DEMO MODE before using real funds.
 
 👇 Choose an option below:`,
-        {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        {
-                            text: "🎮 Play TrendGame",
-                            url: "https://trendgame.vercel.app"
-                        }
-                    ],
-                    [
-                        {
-                            text: "ℹ️ How It Works",
-                            callback_data: "how_it_works"
-                        }
-                    ],
-                    [
-                        {
-                            text: "🎯 Demo Mode",
-                            callback_data: "demo"
-                        }
-                    ]
-                ]
-            }
-        }
-    );
+{
+reply_markup: {
+inline_keyboard: [
+[
+{
+text: "🎮 Play TrendGame",
+url: "https://trendgame.vercel.app"
+}
+],
+[
+{
+text: "ℹ️ How It Works",
+callback_data: "how_it_works"
+}
+],
+[
+{
+text: "🎯 Demo Mode",
+callback_data: "demo"
+}
+]
+]
+}
+}
+);
+
+        console.log("✅ /start reply sent.");
+
+    } catch (error) {
+
+        console.error("❌ /start reply error:", error);
+
+    }
+
+}
 
 });
-
 
 // ======================================================
 // CALLBACK BUTTONS
@@ -76,20 +97,25 @@ You can also try DEMO MODE before using real funds.
 
 bot.on("callback_query", async (ctx) => {
 
-    const query = ctx.callbackQuery;
+const query = ctx.callbackQuery;
 
-    if (!query) return;
+console.log(
+    "🔘 BUTTON PRESSED:",
+    query?.data
+);
 
-    const chatId = query.message?.chat?.id;
+if (!query) {
+    return;
+}
 
-    if (!chatId) return;
 
+// ==================================================
+// HOW IT WORKS
+// ==================================================
 
-    // ==================================================
-    // HOW IT WORKS
-    // ==================================================
+if (query.data === "how_it_works") {
 
-    if (query.data === "how_it_works") {
+    try {
 
         await ctx.answerCallbackQuery();
 
@@ -109,16 +135,27 @@ bot.on("callback_query", async (ctx) => {
 6️⃣ Successful real-game rewards can be withdrawn according to the platform rules.
 
 ⚠️ Play responsibly. Only use funds you can afford to lose.`
+);
+
+    } catch (error) {
+
+        console.error(
+            "❌ How It Works error:",
+            error
         );
 
     }
 
+}
 
-    // ==================================================
-    // DEMO MODE
-    // ==================================================
 
-    if (query.data === "demo") {
+// ==================================================
+// DEMO MODE
+// ==================================================
+
+if (query.data === "demo") {
+
+    try {
 
         await ctx.answerCallbackQuery();
 
@@ -132,24 +169,30 @@ No problem.
 Practice first, learn the game and develop your own approach.
 
 👇 Open TrendGame9ja:`,
-            {
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: "🎮 Open TrendGame9ja",
-                                url: "https://trendgame.vercel.app"
-                            }
-                        ]
-                    ]
-                }
-            }
+{
+reply_markup: {
+inline_keyboard: [
+[
+{
+text: "🎮 Open TrendGame9ja",
+url: "https://trendgame.vercel.app"
+}
+]
+]
+}
+}
+);
+    } catch (error) {
+
+        console.error(
+            "❌ Demo Mode error:",
+            error
         );
 
     }
 
+}
 });
-
 
 // ======================================================
 // ERROR HANDLER
@@ -157,6 +200,33 @@ Practice first, learn the game and develop your own approach.
 
 bot.catch((error) => {
 
-    console.error("❌ Telegram Bot Error:", error);
+
+console.error(
+    "❌ Telegram Bot Error:",
+    error
+);
 
 });
+
+// ======================================================
+// START POLLING
+// ======================================================
+
+(async () => {
+
+try {
+
+    console.log("🔄 Starting Telegram polling...");
+
+    await bot.startPolling();
+
+} catch (error) {
+
+    console.error(
+        "❌ Telegram polling error:",
+        error
+    );
+
+}
+
+})();
