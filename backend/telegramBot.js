@@ -122,13 +122,15 @@ if (query.data === "how_it_works") {
         await ctx.reply(
             `🎮 HOW TRENDGAME WORKS
 
-1️⃣ Choose a category.
+1️⃣ Each category has percentages for Deman and Supply. Open View Trend for each category.
 
-2️⃣ Study the available trends.
+2️⃣ Study the trends, note the values of Mean Roc, Max Roc and critical categories.
 
-3️⃣ Try to decode what happens next.
+3️⃣ Mean Roc represents average return on coins while Max Roc represents maximum return on coins.
+   It is a better approach not to play with coins higer than the Mean Roc at a particular cycle.
+   And riskier to play with coins at the size of Max Roc. Try to decode what outcome happens next. Demand or Supply.
 
-4️⃣ You can practice with DEMO MODE.
+4️⃣ Outcomes are fully automated and are decided by the games market forces. You can practice with DEMO MODE.
 
 5️⃣ When you're ready, you can use REAL MODE with your own disposable funds.
 
