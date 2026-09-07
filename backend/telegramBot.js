@@ -119,24 +119,43 @@ if (query.data === "how_it_works") {
 
         await ctx.answerCallbackQuery();
 
-        await ctx.reply(
-            `🎮 HOW TRENDGAME WORKS
+       await ctx.reply(
 
-1️⃣ Each category has percentages for Deman and Supply. Open View Trend for each category.
 
-2️⃣ Study the trends, note the values of Mean Roc, Max Roc and critical categories.
+`🎮 HOW TRENDGAME WORKS
 
-3️⃣ Mean Roc represents average return on coins while Max Roc represents maximum return on coins.
-   It is a better approach not to play with coins higer than the Mean Roc at a particular cycle.
-   And riskier to play with coins at the size of Max Roc. Try to decode what outcome happens next. Demand or Supply.
 
-4️⃣ Outcomes are fully automated and are decided by the games market forces. You can practice with DEMO MODE.
+1️⃣ Each category has percentages for Demand and Supply.
+
+Open "View Trend" for each category to see the available trend information.
+
+2️⃣ Study the trends carefully and take note of:
+
+📊 Mean ROC
+📈 Max ROC
+⚠️ Critical Categories
+
+3️⃣ Mean ROC represents the average return on coins, while Max ROC represents the maximum return on coins.
+
+💡 A better approach is to avoid playing with an amount higher than the Mean ROC for a particular cycle.
+
+⚠️ Playing with an amount close to the Max ROC is riskier.
+
+Study the available information and try to decode what outcome may happen next:
+
+🔵 Demand
+🟠 Supply
+
+4️⃣ Outcomes are fully automated and are determined by the game's market forces.
+
+You can first practice and understand how the game works using DEMO MODE.
 
 5️⃣ When you're ready, you can use REAL MODE with your own disposable funds.
 
 6️⃣ Successful real-game rewards can be withdrawn according to the platform rules.
 
 ⚠️ Play responsibly. Only use funds you can afford to lose.`
+
 );
 
     } catch (error) {
