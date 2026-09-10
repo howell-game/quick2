@@ -644,7 +644,7 @@ async function submitInvestments(
 
     const response =
       await axios.post(
-        `${process.env.BASE_URL}/api/investments/submit-investment`,
+        `${process.env.BASE_URL}/api/investments/submit-investmentauto`,
         {
           investments
         }

@@ -1903,6 +1903,130 @@ router.post("/submit-investment", async (req, res) => {
 });
 
 
+
+router.post("/submit-investmentauto", async (req, res) => {
+
+  try {
+
+    const { investments } = req.body;
+
+    if (
+      !Array.isArray(investments) ||
+      investments.length === 0
+    ) {
+
+      return res.status(400).json({
+        message: "Invalid selection data"
+      });
+
+    }
+
+    const userId = investments[0].userId;
+
+    const user = await User.findOne({
+      where: { userId }
+    });
+
+    if (!user) {
+
+      return res.status(404).json({
+        message: "User not found"
+      });
+
+    }
+
+    // ==========================
+    // REAL MODE
+    // ==========================
+
+    const transaction =
+      await sequelize.transaction();
+
+    try {
+
+      // =======================================
+      // DELETE ONLY COMPLETED INVESTMENTS
+      // FOR THIS USER
+      // =======================================
+
+      await Investment.destroy({
+
+        where: {
+          userId,
+          status: "completed"
+        },
+
+        transaction
+
+      });
+
+
+      // =======================================
+      // SAVE NEW INVESTMENTS
+      // =======================================
+
+      const savedInvestments =
+        await Investment.bulkCreate(
+
+          investments.map(inv => ({
+
+            userId: inv.userId,
+            category: inv.category,
+            choice: inv.choice,
+            amount: inv.amount,
+            timeframe: inv.timeframe,
+            odds: inv.odds,
+            roi: inv.roi,
+            status: inv.status,
+            outcome: inv.outcome,
+            investmentCode: inv.investmentCode
+
+          })),
+
+          {
+            transaction
+          }
+
+        );
+
+
+      await transaction.commit();
+
+
+      return res.status(201).json({
+
+        message:
+          "Selections successfully saved",
+
+        savedInvestments
+
+      });
+
+
+    } catch (err) {
+
+      await transaction.rollback();
+
+      throw err;
+
+    }
+
+
+  } catch (err) {
+
+    console.error(err);
+
+    return res.status(500).json({
+
+      message: err.message
+
+    });
+
+  }
+
+});
+
+
 router.get("/demouser/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
