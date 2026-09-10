@@ -84,7 +84,7 @@ router.post('/signup', async (req, res) => {
       email,
       password,
       userId,
-      balance: 250,
+      balance: 550,
       demoBalance: 1000
     });
 
@@ -215,46 +215,142 @@ router.post('/share-signup', async (req, res) => {
   }
 });
 
+
 // Login
 router.post('/login', async (req, res) => {
+
   try {
+
     const { email, password } = req.body;
-    const user = await User.findOne({ where: { email } });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    if (!user.isVerified) return res.status(403).json({ message: 'Email not verified' });
 
-    if (user.blockUntil && new Date() < user.blockUntil) {
-      const remainingTime = Math.ceil((user.blockUntil - new Date()) / 60000);
-      return res.status(403).json({ message: `Blocked. Try again in ${remainingTime} minutes.` });
+
+    const user = await User.findOne({
+      where: { email }
+    });
+
+
+    if (!user) {
+
+      return res.status(404).json({
+        message: 'User not found'
+      });
+
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!user.isVerified) {
+
+      return res.status(403).json({
+        message: 'Email not verified'
+      });
+
+    }
+
+
+    if (
+      user.blockUntil &&
+      new Date() < user.blockUntil
+    ) {
+
+      const remainingTime = Math.ceil(
+        (user.blockUntil - new Date()) / 60000
+      );
+
+      return res.status(403).json({
+        message:
+          `Blocked. Try again in ${remainingTime} minutes.`
+      });
+
+    }
+
+
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+
     if (!isMatch) {
+
       user.failedAttempts += 1;
+
+
       if (user.failedAttempts >= 4) {
-        user.blockUntil = new Date(Date.now() + 60 * 60 * 1000);
+
+        user.blockUntil = new Date(
+          Date.now() + 60 * 60 * 1000
+        );
+
       }
+
+
       await user.save();
-      return res.status(400).json({ message: 'Invalid credentials' });
+
+
+      return res.status(400).json({
+        message: 'Invalid credentials'
+      });
+
     }
+
+
+    // =========================================
+    // SUCCESSFUL LOGIN
+    // =========================================
 
     user.failedAttempts = 0;
+
     user.blockUntil = null;
+
+
+    // Record the time the user successfully logged in
+    user.lastTimeOut = new Date();
+
+
     await user.save();
 
-    const token = jwt.sign({ userId: user.userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    const token = jwt.sign(
+
+      {
+        userId: user.userId
+      },
+
+      process.env.JWT_SECRET,
+
+      {
+        expiresIn: '1h'
+      }
+
+    );
+
 
     res.status(200).json({
+
       token,
+
       user: {
+
         name: user.name,
+
         userId: user.userId,
+
         balance: user.balance,
+
       }
+
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+
   }
+
+  catch (error) {
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+
 });
 
 // Share Login

@@ -4697,7 +4697,7 @@ const distributeDemoInvestment = async () => {
     );
 
     console.log(
-      "✅ INVESTMENT DISTRIBUTION COMPLETED"
+      "✅ DEMO--INVESTMENT DISTRIBUTION COMPLETED"
     );
 
     console.log(
