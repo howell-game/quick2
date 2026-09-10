@@ -470,13 +470,13 @@ let usedCategories = [];
 
 // Set individual amounts for each of the 10 selections
 const INVESTMENT_AMOUNTS = [
-  300, // higher odds
+  200, // higher odds
   490, // lower odds
   500, // random group 1
   600, // random group 2
   700, // random group 3
   750, // random group 4
-  350, // random group 5
+  150, // random group 5
   650, // random group 6
   800, // random group 7
   550, // random group 8
