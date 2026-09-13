@@ -84,7 +84,7 @@ router.post('/signup', async (req, res) => {
       email,
       password,
       userId,
-      balance: 550,
+      balance: 250,
       demoBalance: 1000
     });
 
