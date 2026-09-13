@@ -22,7 +22,8 @@ const PlatformFee = require('../models/PlatformFee');
 
 async function keepLatest100InvestmentSelections(
   Model,
-  userId
+  userId,
+  transaction
 ) {
 
   const selections = await Model.findAll({
@@ -73,7 +74,8 @@ async function keepLatest100InvestmentSelections(
       where: {
         investmentCode:
           selection.investmentCode
-      }
+      },
+      transaction
 
     });
 
@@ -89,144 +91,382 @@ async function keepLatest100InvestmentSelections(
 
 // ======================================================
 // UPDATE PLATFORM FEE AND REFERRAL BONUS
+//
+// ALL OPERATIONS USE THE SAME TRANSACTION
 // ======================================================
-async function processInvestmentPlatformFee(userId, amount) {
+
+async function processInvestmentPlatformFee(
+  userId,
+  amount,
+  transaction
+) {
+
   try {
+
+
     // -----------------------------------------
     // Calculate 5% platform fee
     // -----------------------------------------
-    const platformFeeAmount = Math.floor(Number(amount) * 0.05);
+
+    const platformFeeAmount =
+      Math.floor(
+        Number(amount) * 0.05
+      );
+
 
     if (platformFeeAmount <= 0) {
-      console.log("Platform fee is 0. Nothing to process.");
+
+      console.log(
+        "Platform fee is 0. Nothing to process."
+      );
+
       return;
+
     }
+
 
     // -----------------------------------------
     // Find the current user
+    //
+    // USING TRANSACTION
     // -----------------------------------------
+
     const user = await User.findOne({
-      where: { userId }
+
+      where: {
+
+        userId
+
+      },
+
+      transaction
+
     });
 
+
     if (!user) {
-      throw new Error(`User ${userId} not found.`);
+
+      throw new Error(
+
+        `User ${userId} not found.`
+
+      );
+
     }
+
 
     // -----------------------------------------
     // Check if user was referred
     // -----------------------------------------
+
     if (!user.referredBy) {
 
+
+      // ---------------------------------------
       // No referral
+      //
       // Entire 5% goes to PlatformFee
-      const [platformFee] = await PlatformFee.findOrCreate({
-        where: { type: "main" },
-        defaults: {
-          totalFees: 0
-        }
+      // ---------------------------------------
+
+      const [platformFee] =
+
+        await PlatformFee.findOrCreate({
+
+          where: {
+
+            type: "main"
+
+          },
+
+          defaults: {
+
+            totalFees: 0
+
+          },
+
+          transaction
+
+        });
+
+
+      // ---------------------------------------
+      // Add fee
+      // ---------------------------------------
+
+      platformFee.totalFees =
+
+        Number(
+          platformFee.totalFees || 0
+        )
+
+        +
+
+        platformFeeAmount;
+
+
+      // ---------------------------------------
+      // Save using transaction
+      // ---------------------------------------
+
+      await platformFee.save({
+
+        transaction
+
       });
 
-      platformFee.totalFees += platformFeeAmount;
-
-      await platformFee.save();
 
       console.log(
+
         `✅ No referral. ₦${platformFeeAmount} added to PlatformFee.`
+
       );
 
+
       return;
+
     }
 
-    // -----------------------------------------
-    // User has a referrer
-    // -----------------------------------------
-    const referrer = await User.findOne({
-      where: {
-        referralCode: user.referredBy
-      }
-    });
 
     // -----------------------------------------
-    // If referral code does not belong
-    // to an existing user, send entire fee
-    // to platform
+    // Find referrer
+    //
+    // USING TRANSACTION
     // -----------------------------------------
+
+    const referrer =
+
+      await User.findOne({
+
+        where: {
+
+          referralCode:
+            user.referredBy
+
+        },
+
+        transaction
+
+      });
+
+
+    // -----------------------------------------
+    // Invalid referrer
+    // -----------------------------------------
+
     if (!referrer) {
 
+
       console.warn(
+
         `⚠️ Referrer with referral code ${user.referredBy} not found.`
+
       );
 
-      const [platformFee] = await PlatformFee.findOrCreate({
-        where: { type: "main" },
-        defaults: {
-          totalFees: 0
-        }
+
+      const [platformFee] =
+
+        await PlatformFee.findOrCreate({
+
+          where: {
+
+            type: "main"
+
+          },
+
+          defaults: {
+
+            totalFees: 0
+
+          },
+
+          transaction
+
+        });
+
+
+      platformFee.totalFees =
+
+        Number(
+          platformFee.totalFees || 0
+        )
+
+        +
+
+        platformFeeAmount;
+
+
+      // ---------------------------------------
+      // Save with transaction
+      // ---------------------------------------
+
+      await platformFee.save({
+
+        transaction
+
       });
 
-      platformFee.totalFees += platformFeeAmount;
-
-      await platformFee.save();
 
       console.log(
+
         `✅ Full ₦${platformFeeAmount} added to PlatformFee because referrer was not found.`
+
       );
 
+
       return;
+
     }
+
 
     // -----------------------------------------
     // Calculate referral bonus
+    //
     // 1/5 of the 5% platform fee
     // -----------------------------------------
-    const referralBonus = Math.round(platformFeeAmount / 5);
+
+    const referralBonus =
+
+      Math.round(
+        platformFeeAmount / 5
+      );
+
 
     // -----------------------------------------
-    // Platform receives the remaining 4/5
+    // Platform receives remaining 4/5
     // -----------------------------------------
-    const platformAmount = platformFeeAmount - referralBonus;
+
+    const platformAmount =
+
+      platformFeeAmount -
+
+      referralBonus;
+
 
     // -----------------------------------------
-    // Add referral bonus to referrer's balance
+    // Add referral bonus to referrer
     // -----------------------------------------
-    referrer.balance = Number(referrer.balance || 0) + referralBonus;
 
-    await referrer.save();
+    referrer.balance =
+
+      Number(
+        referrer.balance || 0
+      )
+
+      +
+
+      referralBonus;
+
 
     // -----------------------------------------
-    // Add remaining 4/5 to PlatformFee
+    // Save referrer
+    //
+    // USING TRANSACTION
     // -----------------------------------------
-    const [platformFee] = await PlatformFee.findOrCreate({
-      where: { type: "main" },
-      defaults: {
-        totalFees: 0
-      }
+
+    await referrer.save({
+
+      transaction
+
     });
 
+
+    // -----------------------------------------
+    // Find or create PlatformFee
+    //
+    // USING TRANSACTION
+    // -----------------------------------------
+
+    const [platformFee] =
+
+      await PlatformFee.findOrCreate({
+
+        where: {
+
+          type: "main"
+
+        },
+
+        defaults: {
+
+          totalFees: 0
+
+        },
+
+        transaction
+
+      });
+
+
+    // -----------------------------------------
+    // Add platform amount
+    // -----------------------------------------
+
     platformFee.totalFees =
-      Number(platformFee.totalFees || 0) + platformAmount;
 
-    await platformFee.save();
+      Number(
+        platformFee.totalFees || 0
+      )
+
+      +
+
+      platformAmount;
+
+
+    // -----------------------------------------
+    // Save PlatformFee
+    //
+    // USING TRANSACTION
+    // -----------------------------------------
+
+    await platformFee.save({
+
+      transaction
+
+    });
+
+
+    // -----------------------------------------
+    // LOG SUCCESS
+    // -----------------------------------------
 
     console.log(
+
       `✅ Referral bonus: ₦${referralBonus} paid to ${referrer.userId}`
+
     );
 
+
     console.log(
+
       `✅ Platform fee: ₦${platformAmount} added to PlatformFee`
+
     );
+
 
   } catch (error) {
 
+
     console.error(
+
       "❌ Error processing platform fee and referral:",
+
       error
+
     );
 
+
+    // -----------------------------------------
+    // THROW ERROR BACK TO MAIN TRANSACTION
+    //
+    // MAIN ENDPOINT WILL ROLLBACK EVERYTHING
+    // -----------------------------------------
+
     throw error;
+
   }
+
 }
+
 
 router.get("/trend-data", async (req, res) => {
 
@@ -1095,7 +1335,8 @@ async function submitInvestmentSelectionDemo(
   userId,
   amount,
   timeframe,
-  selectedInvestments
+  selectedInvestments,
+  transaction
 ) {
 
   try {
@@ -1104,39 +1345,39 @@ async function submitInvestmentSelectionDemo(
 
 
     // ========================================================
-    // SAVE NEW INVESTMENT SELECTION
+    // CREATE DEMO INVESTMENT SELECTION
     // ========================================================
 
-    await InvestmentSelectionDemo.create({
+    await InvestmentSelectionDemo.create(
 
-      investmentCode,
+      {
 
-      userId,
+        investmentCode,
 
-      amount,
+        userId,
 
-      timeframe,
+        amount,
 
-      status: "awaiting",
+        timeframe,
 
-      outcome: "active",
+        status: "awaiting",
 
-      selectedInvestments,
+        outcome: "active",
 
-      synchronized: false,
+        selectedInvestments,
 
-      distributed: false
+        synchronized: false,
 
-    });
+        distributed: false
 
+      },
 
-    // ========================================================
-    // KEEP ONLY THE LATEST 100 FOR THIS USER
-    // ========================================================
+      {
 
-    await keepLatest100InvestmentSelections(
-      InvestmentSelectionDemo,
-      userId
+        transaction
+
+      }
+
     );
 
 
@@ -1145,49 +1386,66 @@ async function submitInvestmentSelectionDemo(
       success: true,
 
       message:
-        "Selections saved successfully",
+        "Demo selection saved successfully",
 
       investmentCode
 
     };
 
+
   } catch (error) {
 
     console.error(
+
       "❌ Demo investment submission error:",
+
       error
+
     );
 
-
-    return {
-
-      success: false,
-
-      message: error.message
-
-    };
+    throw error;
 
   }
 
 }
 
-
 // ============================================================
-// SUBMIT REAL INVESTMENT SELECTION
-// MAXIMUM 100 RECORDS PER USER
+// SUBMIT INVESTMENT SELECTION
+//
+// COMPLETE ATOMIC TRANSACTION
+//
+// IF ANYTHING FAILS:
+// EVERYTHING ROLLS BACK
 // ============================================================
 
 router.post(
+
   "/submit-investmentselection",
+
   async (req, res) => {
+
+
+    // ========================================================
+    // START DATABASE TRANSACTION
+    // ========================================================
+
+    const transaction =
+      await sequelize.transaction();
+
 
     try {
 
+
       const {
+
         userId,
+
         amount,
+
         timeframe,
+
         selectedInvestments
+
       } = req.body;
 
 
@@ -1196,11 +1454,24 @@ router.post(
       // ======================================================
 
       if (
+
         !userId ||
+
         !amount ||
+
+        Number(amount) <= 0 ||
+
         !timeframe ||
-        !Array.isArray(selectedInvestments)
+
+        !Array.isArray(selectedInvestments) ||
+
+        selectedInvestments.length === 0
+
       ) {
+
+
+        await transaction.rollback();
+
 
         return res.status(400).json({
 
@@ -1217,16 +1488,32 @@ router.post(
       // ======================================================
 
       const user =
+
         await User.findOne({
 
           where: {
+
             userId
-          }
+
+          },
+
+          transaction,
+
+          lock:
+            transaction.LOCK.UPDATE
 
         });
 
 
+      // ======================================================
+      // USER NOT FOUND
+      // ======================================================
+
       if (!user) {
+
+
+        await transaction.rollback();
+
 
         return res.status(404).json({
 
@@ -1237,6 +1524,32 @@ router.post(
 
       }
 
+      // =======================================
+// DELETE ONLY COMPLETED INVESTMENTS
+// FOR THIS USER
+// =======================================
+
+await Investment.destroy({
+
+  where: {
+
+    userId,
+
+    status: "completed"
+
+  },
+
+  transaction
+
+});
+
+
+console.log(
+
+  `🗑️ Completed investments deleted for user ${userId}`
+
+);
+
 
       // ======================================================
       // DEMO MODE
@@ -1244,7 +1557,57 @@ router.post(
 
       if (user.mode === false) {
 
+
+        // ====================================================
+        // CHECK DEMO BALANCE
+        // ====================================================
+
+        if (
+
+          Number(user.demoBalance) <
+
+          Number(amount)
+
+        ) {
+
+
+          await transaction.rollback();
+
+
+          return res.status(400).json({
+
+            message:
+              "Insufficient demo balance"
+
+          });
+
+        }
+
+
+        // ====================================================
+        // DEDUCT DEMO BALANCE
+        // ====================================================
+
+        user.demoBalance =
+
+          Number(user.demoBalance) -
+
+          Number(amount);
+
+
+        await user.save({
+
+          transaction
+
+        });
+
+
+        // ====================================================
+        // CREATE DEMO INVESTMENT SELECTION
+        // ====================================================
+
         const result =
+
           await submitInvestmentSelectionDemo(
 
             userId,
@@ -1253,14 +1616,54 @@ router.post(
 
             timeframe,
 
-            selectedInvestments
+            selectedInvestments,
+
+            transaction
 
           );
 
 
-        return res.status(201).json(
-          result
+        // ====================================================
+        // KEEP ONLY LATEST 100
+        //
+        // NOTE:
+        // This function must also support transaction
+        // ====================================================
+
+        await keepLatest100InvestmentSelections(
+
+          InvestmentSelectionDemo,
+
+          userId,
+
+          transaction
+
         );
+
+
+        // ====================================================
+        // COMMIT EVERYTHING
+        // ====================================================
+
+        await transaction.commit();
+
+
+        return res.status(201).json({
+
+          success: true,
+
+          message:
+            "Demo investment submitted successfully",
+
+          investmentCode:
+            result.investmentCode,
+
+          newBalance:
+            user.demoBalance,
+
+          mode: false
+
+        });
 
       }
 
@@ -1269,95 +1672,275 @@ router.post(
       // REAL MODE
       // ======================================================
 
-      const investmentCode =
-        uuidv4();
+      if (user.mode === true) {
 
 
-      console.log(
-        JSON.stringify(
-          selectedInvestments,
-          null,
-          2
-        )
-      );
+        // ====================================================
+        // CHECK REAL BALANCE
+        // ====================================================
+
+        if (
+
+          Number(user.balance) <
+
+          Number(amount)
+
+        ) {
+
+
+          await transaction.rollback();
+
+
+          return res.status(400).json({
+
+            message:
+              "Insufficient real balance"
+
+          });
+
+        }
+
+
+        // ====================================================
+        // DEDUCT REAL BALANCE
+        // ====================================================
+
+        user.balance =
+
+          Number(user.balance) -
+
+          Number(amount);
+
+
+        await user.save({
+
+          transaction
+
+        });
+
+
+        console.log(
+
+          `💰 ₦${amount} deducted from ${userId}`
+
+        );
+
+
+        // ====================================================
+        // GENERATE ONE INVESTMENT CODE
+        //
+        // SAME CODE WILL BE USED FOR:
+        //
+        // Investment
+        // InvestmentSelection
+        // ====================================================
+
+        const investmentCode =
+
+          uuidv4();
+
+
+        // ====================================================
+        // PREPARE INVESTMENTS
+        // ====================================================
+
+        const investments =
+
+          selectedInvestments.map(
+
+            investment => ({
+
+              userId,
+
+              category:
+                investment.category,
+
+              choice:
+                investment.choice,
+
+              amount:
+                investment.amount,
+
+              roi:
+                investment.roi,
+
+              timeframe,
+
+              odds:
+                investment.odds,
+
+              status:
+                "awaiting",
+
+              outcome:
+                null,
+
+              investmentCode
+
+            })
+
+          );
+
+
+        // ====================================================
+        // CREATE INDIVIDUAL INVESTMENTS
+        // ====================================================
+
+        await Investment.bulkCreate(
+
+          investments,
+
+          {
+
+            transaction
+
+          }
+
+        );
+
+
+        // ====================================================
+        // CREATE INVESTMENT SELECTION
+        // ====================================================
+
+        await InvestmentSelection.create(
+
+          {
+
+            investmentCode,
+
+            userId,
+
+            amount,
+
+            timeframe,
+
+            outcome:
+              "active",
+
+            status:
+              "awaiting",
+
+            selectedInvestments,
+
+            synchronized:
+              false,
+
+            distributed:
+              false
+
+          },
+
+          {
+
+            transaction
+
+          }
+
+        );
+
+
+        // ====================================================
+        // KEEP ONLY LATEST 100
+        // ====================================================
+
+        await keepLatest100InvestmentSelections(
+
+          InvestmentSelection,
+
+          userId,
+
+          transaction
+
+        );
+
+
+        // ====================================================
+        // PROCESS PLATFORM FEE
+        //
+        // IMPORTANT:
+        // THIS FUNCTION MUST USE THE SAME TRANSACTION
+        // ====================================================
+
+        await processInvestmentPlatformFee(
+
+          userId,
+
+          amount,
+
+          transaction
+
+        );
+
+
+        // ====================================================
+        // COMMIT EVERYTHING
+        // ====================================================
+
+        await transaction.commit();
+
+
+        // ====================================================
+        // SUCCESS RESPONSE
+        // ====================================================
+
+        return res.status(201).json({
+
+          success: true,
+
+          message:
+            "Investment submitted successfully",
+
+          investmentCode,
+
+          newBalance:
+            user.balance,
+
+          mode: true
+
+        });
+
+      }
 
 
       // ======================================================
-      // SAVE INVESTMENT
+      // INVALID MODE
       // ======================================================
 
-      await InvestmentSelection.create({
-
-        investmentCode,
-
-        userId,
-
-        amount,
-
-        timeframe,
-
-        outcome: "active",
-
-        status: "awaiting",
-
-        selectedInvestments,
-
-        synchronized: false,
-
-        distributed: false
-
-      });
+      await transaction.rollback();
 
 
-      // ======================================================
-      // KEEP ONLY THE LATEST 100
-      // ======================================================
-
-      await keepLatest100InvestmentSelections(
-
-        InvestmentSelection,
-
-        userId
-
-      );
-
-
-      // ======================================================
-      // PROCESS PLATFORM FEE
-      // ======================================================
-
-      await processInvestmentPlatformFee(
-        userId,
-        amount
-      );
-
-
-      // ======================================================
-      // RESPONSE
-      // ======================================================
-
-      return res.status(201).json({
+      return res.status(400).json({
 
         message:
-          "Selection saved successfully",
-
-        investmentCode
+          "Invalid user mode"
 
       });
 
 
     } catch (error) {
 
+
+      // ======================================================
+      // ROLLBACK EVERYTHING
+      // ======================================================
+
+      await transaction.rollback();
+
+
       console.error(
+
         "❌ Investment submission error:",
+
         error
+
       );
 
 
       return res.status(500).json({
 
         message:
-          "Server error",
+          "Investment submission failed. No money was deducted.",
 
         error:
           error.message
@@ -1367,7 +1950,10 @@ router.post(
     }
 
   }
+
 );
+
+
 
 // ============================================================
 // SUBMIT DEMO INVESTMENT SELECTION

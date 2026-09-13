@@ -466,7 +466,7 @@ async function DemoupdateInvestmentSelectionStatusToCompleted1d() {
 
 const AUTO_USER_ID = 'QS9-1787589138217-122'; // Replace this with actual userId
 const TIMEFRAME = '5m';
-let usedCategories = [];
+
 
 // Set individual amounts for each of the 10 selections
 const INVESTMENT_AMOUNTS = [
@@ -746,41 +746,132 @@ function getLowerOddsSelection(oddsList, higherSelection) {
 }
 
 
-function shuffleArray(array) {
-  return [...array].sort(() => Math.random() - 0.5);
-}
+// ==========================================================
+// CREATE 8 UNIQUE RANDOM HIGHER/LOWER ODDS SELECTIONS
+// ==========================================================
 
-function get8RandomGroupsOf3(oddsList) {
-  const allCategories = oddsList.map(o => o.category);
+function get8UniqueRandomSelections(oddsList) {
 
-  if (usedCategories.length >= 24) {
-    console.log('Resetting used categories');
-    usedCategories = [];
-  }
+  const selections = [];
 
-  const remaining = allCategories.filter(cat => !usedCategories.includes(cat));
+  // Store generated combinations
+  const usedCombinations = new Set();
 
-  const categoriesToUse = remaining.length >= 24
-    ? shuffleArray(remaining).slice(0, 24)
-    : shuffleArray([...remaining, ...shuffleArray(usedCategories)]).slice(0, 24);
 
-  const groups = [];
-  for (let i = 0; i < 8; i++) {
-    const group = categoriesToUse.slice(i * 3, i * 3 + 3);
-    groups.push(group);
-  }
+  // ========================================================
+  // KEEP GENERATING UNTIL WE HAVE 8 UNIQUE SELECTIONS
+  // ========================================================
 
-  usedCategories.push(...categoriesToUse);
+  while (selections.length < 8) {
 
-  return groups.map(group => {
-    return group.map(cat => {
-      const match = oddsList.find(o => o.category === cat);
-      const odds = Math.random() < 0.5 ? match.supplyOdds : match.demandOdds;
-      const choice = odds === match.supplyOdds ? 'Supply' : 'Demand'; // Determine the choice based on odds
-      return { category: cat, odds, choice }; // Ensure choice is included
+    const selection = oddsList.map(o => {
+
+
+      // ====================================================
+      // GET HIGHER ODDS
+      // ====================================================
+
+      const higherOdds =
+        Math.max(
+          o.supplyOdds,
+          o.demandOdds
+        );
+
+
+      // ====================================================
+      // GET LOWER ODDS
+      // ====================================================
+
+      const lowerOdds =
+        Math.min(
+          o.supplyOdds,
+          o.demandOdds
+        );
+
+
+      // ====================================================
+      // RANDOMLY CHOOSE HIGHER OR LOWER
+      // ====================================================
+
+      const chooseHigher =
+        Math.random() < 0.5;
+
+
+      // ====================================================
+      // SELECT ODDS
+      // ====================================================
+
+      const selectedOdds =
+        chooseHigher
+          ? higherOdds
+          : lowerOdds;
+
+
+      // ====================================================
+      // DETERMINE SUPPLY OR DEMAND
+      // ====================================================
+
+      const choice =
+        selectedOdds === o.supplyOdds
+          ? "Supply"
+          : "Demand";
+
+
+      return {
+
+        category: o.category,
+
+        odds: selectedOdds,
+
+        choice
+
+      };
+
     });
-  });
+
+
+    // ======================================================
+    // CREATE UNIQUE SIGNATURE FOR THIS COMPLETE SELECTION
+    // ======================================================
+
+    const combinationKey =
+      selection
+        .map(
+          investment =>
+            `${investment.category}:${investment.choice}`
+        )
+        .join("|");
+
+
+    // ======================================================
+    // ONLY ADD IF THIS EXACT COMBINATION DOES NOT EXIST
+    // ======================================================
+
+    if (!usedCombinations.has(combinationKey)) {
+
+      usedCombinations.add(combinationKey);
+
+      selections.push(selection);
+
+      console.log(
+        `✅ Unique random selection ${selections.length} created`
+      );
+
+    } else {
+
+      console.log(
+        "⚠️ Duplicate selection generated. Trying again..."
+      );
+
+    }
+
+  }
+
+
+  return selections;
+
 }
+
 
 // Function to submit an investment selection
 async function submitInvestmentSelection(userId, selectedInvestments, amount) {
@@ -1120,14 +1211,76 @@ async function automatedInvestment() {
     await submitInvestmentSelection(AUTO_USER_ID, lowerSelection2, INVESTMENT_AMOUNTS[1]);
     await submitDemoInvestmentSelection(AUTO_USER_ID, lowerSelection2, INVESTMENT_AMOUNTS[1]);
 
-    // Submit selections 3–10: 8 random groups of 3 categories
-    const randomGroups = get8RandomGroupsOf3(oddsList);
-    for (let i = 0; i < randomGroups.length; i++) {
-      const group = randomGroups[i];
-      const amount = INVESTMENT_AMOUNTS[i + 2];
-      await submitInvestmentSelection(AUTO_USER_ID, group, amount);
-      await submitDemoInvestmentSelection(AUTO_USER_ID, group, amount);
-    }
+    // ==========================================================
+// CREATE 8 UNIQUE RANDOM SELECTIONS
+//
+// EACH SELECTION:
+// - Contains ALL categories
+// - Each category randomly chooses Higher or Lower odds
+// - No complete selection can be identical
+// ==========================================================
+
+const randomSelections =
+  get8UniqueRandomSelections(oddsList);
+
+
+// ==========================================================
+// SUBMIT THE 8 RANDOM SELECTIONS
+// ==========================================================
+
+for (
+  let i = 0;
+  i < randomSelections.length;
+  i++
+) {
+
+  const selection =
+    randomSelections[i];
+
+
+  // ========================================================
+  // GET AMOUNT FOR THIS SELECTION
+  // ========================================================
+
+  const amount =
+    INVESTMENT_AMOUNTS[i + 2];
+
+
+  console.log(
+    `🎲 Submitting random selection ${i + 1}`
+  );
+
+
+  // ========================================================
+  // SUBMIT REAL INVESTMENT
+  // ========================================================
+
+  await submitInvestmentSelection(
+
+    AUTO_USER_ID,
+
+    selection,
+
+    amount
+
+  );
+
+
+  // ========================================================
+  // SUBMIT DEMO INVESTMENT
+  // ========================================================
+
+  await submitDemoInvestmentSelection(
+
+    AUTO_USER_ID,
+
+    selection,
+
+    amount
+
+  );
+
+}
 
     console.log('Automated investment complete.');
   } catch (err) {
