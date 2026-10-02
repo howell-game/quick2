@@ -350,4 +350,137 @@ router.post("/create", async (req, res) => {
 });
 
 
+router.get("/balance/:userId", async (req, res) => {
+  try {
+
+    const { userId } = req.params;
+
+    // -----------------------------------------
+    // FIND ETREND ACCOUNT
+    // -----------------------------------------
+
+    const account = await ETrendAccount.findOne({
+      where: { userId }
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        message: "ETrend account not found."
+      });
+    }
+
+
+    // -----------------------------------------
+    // CHECK FLUTTERWAVE REFERENCE
+    // -----------------------------------------
+
+    if (!account.flutterwaveAccountReference) {
+      return res.status(400).json({
+        message: "Flutterwave account reference is missing."
+      });
+    }
+
+
+    // -----------------------------------------
+    // GET FLUTTERWAVE WALLET BALANCE
+    // -----------------------------------------
+
+    const response = await axios.get(
+      `https://api.flutterwave.com/v3/payout-subaccounts/${account.flutterwaveAccountReference}/balances`,
+      {
+        headers: {
+          Authorization:
+            `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+
+          "Content-Type": "application/json"
+        },
+
+        params: {
+          currency: "NGN"
+        }
+      }
+    );
+
+
+    console.log(
+      "Flutterwave ETrend balance response:",
+      JSON.stringify(response.data, null, 2)
+    );
+
+
+    // -----------------------------------------
+    // GET BALANCE
+    // -----------------------------------------
+
+    const balanceData = response.data?.data;
+
+    let balance = 0;
+
+    if (Array.isArray(balanceData)) {
+
+      const ngnBalance = balanceData.find(
+        item => item.currency === "NGN"
+      );
+
+      balance = Number(
+        ngnBalance?.available ||
+        ngnBalance?.available_balance ||
+        0
+      );
+
+    } else if (balanceData) {
+
+      balance = Number(
+        balanceData.available ||
+        balanceData.available_balance ||
+        0
+      );
+
+    }
+
+
+    // -----------------------------------------
+    // RETURN ACCOUNT + BALANCE
+    // -----------------------------------------
+
+    return res.json({
+
+      success: true,
+
+      account: {
+        accountName: account.accountName,
+        accountNumber: account.accountNumber,
+        bankName: account.bankName,
+        bankCode: account.bankCode,
+        currency: account.currency,
+        status: account.status
+      },
+
+      balance
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "❌ Failed to load ETrend account balance:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
+    );
+
+    return res.status(500).json({
+
+      message:
+        error.response?.data?.message ||
+        "Unable to load ETrend account balance."
+
+    });
+
+  }
+});
+
 module.exports = router;
