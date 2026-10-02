@@ -483,4 +483,118 @@ router.get("/balance/:userId", async (req, res) => {
   }
 });
 
+// ==========================================================
+// GET ETrend ACCOUNT TRANSACTIONS
+// ==========================================================
+
+router.get("/transactions/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // ------------------------------------------------------
+    // Find the user's ETrend account
+    // ------------------------------------------------------
+
+    const account = await ETrendAccount.findOne({
+      where: { userId }
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        message: "ETrend account not found."
+      });
+    }
+
+    // ------------------------------------------------------
+    // Make sure Flutterwave account reference exists
+    // ------------------------------------------------------
+
+    if (!account.flutterwaveAccountReference) {
+      return res.status(400).json({
+        message: "Flutterwave account reference is missing."
+      });
+    }
+
+    // ------------------------------------------------------
+    // Get the last 30 transactions
+    // ------------------------------------------------------
+
+    const today = new Date();
+
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(today.getDate() - 90);
+
+    const formatDate = (date) => {
+      return date.toISOString().split("T")[0];
+    };
+
+    const from = formatDate(ninetyDaysAgo);
+    const to = formatDate(today);
+
+    const response = await axios.get(
+      `https://api.flutterwave.com/v3/payout-subaccounts/${account.flutterwaveAccountReference}/transactions`,
+      {
+        headers: {
+          Authorization:
+            `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+
+        params: {
+          from,
+          to,
+          currency: "NGN",
+          page: 1,
+          fetch_limit: 30
+        }
+      }
+    );
+
+    console.log(
+      "Flutterwave ETrend transactions response:",
+      JSON.stringify(response.data, null, 2)
+    );
+
+    // ------------------------------------------------------
+    // Get transaction list
+    // ------------------------------------------------------
+
+    const transactionData = response.data?.data;
+
+    let transactions = [];
+
+    if (Array.isArray(transactionData)) {
+      transactions = transactionData;
+    } else if (Array.isArray(transactionData?.transactions)) {
+      transactions = transactionData.transactions;
+    }
+
+    // ------------------------------------------------------
+    // Return transactions to Vuex
+    // ------------------------------------------------------
+
+    return res.json({
+      success: true,
+      transactions
+    });
+
+  } catch (error) {
+
+    console.error(
+      "❌ Failed to load ETrend transactions:"
+    );
+
+    console.error(
+      error.response?.data || error.message
+    );
+
+    return res.status(500).json({
+      message:
+        error.response?.data?.message ||
+        "Unable to load ETrend transactions."
+    });
+  }
+});
+
 module.exports = router;
