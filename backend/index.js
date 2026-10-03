@@ -29,7 +29,13 @@ const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);  // ✅ Create HTTP server
 
 // Middleware
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    }
+  })
+);
 app.use(cors({
   origin: [
     "https://quickstock9ja.site",  

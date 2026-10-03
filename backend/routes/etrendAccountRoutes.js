@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const User = require("../models/User");
 const ETrendAccount = require("../models/ETrendAccount");
+const ETrendTransfer = require("../models/ETrendTransfer");
 
 
 // ==========================================
@@ -622,11 +623,13 @@ router.post("/transfer", async (req, res) => {
       });
     }
 
-    const transferAmount = Number(amount);
+    const transferAmount =
+      Number(amount);
 
-    // Minimum withdrawal = ₦100
     if (
-      !Number.isFinite(transferAmount) ||
+      !Number.isFinite(
+        transferAmount
+      ) ||
       transferAmount < 100
     ) {
       return res.status(400).json({
@@ -635,8 +638,11 @@ router.post("/transfer", async (req, res) => {
       });
     }
 
-    // Nigerian bank account number
-    if (!/^\d{10}$/.test(String(accountNumber))) {
+    if (
+      !/^\d{10}$/.test(
+        String(accountNumber)
+      )
+    ) {
       return res.status(400).json({
         message:
           "Account number must be exactly 10 digits."
@@ -647,9 +653,12 @@ router.post("/transfer", async (req, res) => {
     // 2. FIND ETREND ACCOUNT
     // ==========================================================
 
-    const account = await ETrendAccount.findOne({
-      where: { userId }
-    });
+    const account =
+      await ETrendAccount.findOne({
+        where: {
+          userId
+        }
+      });
 
     if (!account) {
       return res.status(404).json({
@@ -658,7 +667,9 @@ router.post("/transfer", async (req, res) => {
       });
     }
 
-    if (!account.flutterwaveAccountReference) {
+    if (
+      !account.flutterwaveAccountReference
+    ) {
       return res.status(400).json({
         message:
           "Flutterwave account reference is missing."
@@ -666,46 +677,90 @@ router.post("/transfer", async (req, res) => {
     }
 
     // ==========================================================
-    // 3. CALCULATE ETREND SERVICE FEE
+    // IMPORTANT:
+    // DO NOT CHECK account.status === "ACTIVE"
+    //
+    // The local ETrend status is not the Flutterwave
+    // transfer status.
     // ==========================================================
 
-    // ETrend service fee = 0.9%
-    const serviceFee = Number(
-      (transferAmount * 0.009).toFixed(2)
+    // ==========================================================
+    // 3. CALCULATE ETREND FEE
+    // ==========================================================
+
+    const serviceFee =
+      Number(
+        (
+          transferAmount *
+          0.009
+        ).toFixed(2)
+      );
+
+    const totalRequired =
+      Number(
+        (
+          transferAmount +
+          serviceFee
+        ).toFixed(2)
+      );
+
+    console.log(
+      "======================================"
     );
 
-    // Amount required from the user's ETrend account
-    // before considering any Flutterwave provider fee.
-    const totalRequired = Number(
-      (transferAmount + serviceFee).toFixed(2)
+    console.log(
+      "ETREND TRANSFER REQUEST"
     );
 
-    console.log("======================================");
-    console.log("ETREND TRANSFER");
-    console.log("User:", userId);
-    console.log("Transfer amount:", transferAmount);
-    console.log("ETrend service fee:", serviceFee);
-    console.log("Total required:", totalRequired);
-    console.log("======================================");
+    console.log(
+      "User:",
+      userId
+    );
+
+    console.log(
+      "Transfer amount:",
+      transferAmount
+    );
+
+    console.log(
+      "ETrend service fee:",
+      serviceFee
+    );
+
+    console.log(
+      "Total required:",
+      totalRequired
+    );
+
+    console.log(
+      "======================================"
+    );
 
     // ==========================================================
-    // 4. CHECK ETREND FLUTTERWAVE BALANCE
+    // 4. CHECK ETREND WALLET BALANCE
     // ==========================================================
 
-    const balanceResponse = await axios.get(
-      `https://api.flutterwave.com/v3/payout-subaccounts/${account.flutterwaveAccountReference}/balances`,
-      {
-        headers: {
-          Authorization:
-            `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-          "Content-Type": "application/json",
-          Accept: "application/json"
-        },
-        params: {
-          currency: "NGN"
+    const balanceResponse =
+      await axios.get(
+        `https://api.flutterwave.com/v3/payout-subaccounts/${account.flutterwaveAccountReference}/balances`,
+        {
+          headers: {
+            Authorization:
+              `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json"
+          },
+
+          params: {
+            currency:
+              "NGN"
+          }
         }
-      }
-    );
+      );
 
     console.log(
       "Flutterwave ETrend balance:",
@@ -721,28 +776,45 @@ router.post("/transfer", async (req, res) => {
 
     let availableBalance = 0;
 
-    if (Array.isArray(balanceData)) {
+    if (
+      Array.isArray(
+        balanceData
+      )
+    ) {
+
       const ngnBalance =
         balanceData.find(
           item =>
-            String(item.currency).toUpperCase() ===
+            String(
+              item.currency
+            ).toUpperCase() ===
             "NGN"
         );
 
-      availableBalance = Number(
-        ngnBalance?.available ||
-        ngnBalance?.available_balance ||
-        0
-      );
-    } else if (balanceData) {
-      availableBalance = Number(
-        balanceData.available ||
-        balanceData.available_balance ||
-        0
-      );
+      availableBalance =
+        Number(
+          ngnBalance?.available ||
+          ngnBalance?.available_balance ||
+          0
+        );
+
+    } else if (
+      balanceData
+    ) {
+
+      availableBalance =
+        Number(
+          balanceData.available ||
+          balanceData.available_balance ||
+          0
+        );
     }
 
-    if (!Number.isFinite(availableBalance)) {
+    if (
+      !Number.isFinite(
+        availableBalance
+      )
+    ) {
       availableBalance = 0;
     }
 
@@ -752,10 +824,15 @@ router.post("/transfer", async (req, res) => {
     );
 
     // ==========================================================
-    // 5. CHECK AVAILABLE BALANCE
+    // 5. MAKE SURE USER HAS ENOUGH FOR:
+    //
+    // withdrawal + ETrend fee
     // ==========================================================
 
-    if (availableBalance < totalRequired) {
+    if (
+      availableBalance <
+      totalRequired
+    ) {
       return res.status(400).json({
         message:
           `Insufficient ETrend balance. You need ₦${totalRequired.toLocaleString(
@@ -769,55 +846,113 @@ router.post("/transfer", async (req, res) => {
     }
 
     // ==========================================================
-    // 6. CREATE UNIQUE TRANSFER REFERENCE
+    // 6. CREATE UNIQUE WITHDRAWAL REFERENCE
     // ==========================================================
 
     const reference =
       `ETREND_${userId}_${Date.now()}`;
 
     // ==========================================================
-    // 7. SEND MONEY TO CUSTOMER'S BANK ACCOUNT
+    // 7. CREATE LOCAL TRANSFER RECORD FIRST
     // ==========================================================
 
-    const transferResponse =
-      await axios.post(
-        "https://api.flutterwave.com/v3/transfers",
-        {
-          account_bank:
-            String(bankCode),
+    const etrendTransfer =
+      await ETrendTransfer.create({
+        userId,
 
-          account_number:
-            String(accountNumber),
+        reference,
 
-          amount:
-            transferAmount,
+        amount:
+          transferAmount,
 
-          currency:
-            "NGN",
+        etrendFee:
+          serviceFee,
 
-          debit_currency:
-            "NGN",
+        status:
+          "NEW",
 
-          // User's ETrend payout subaccount
-          debit_subaccount:
-            account.flutterwaveAccountReference,
+        feeStatus:
+          "PENDING"
+      });
 
-          reference,
+    // ==========================================================
+    // 8. INITIATE FLUTTERWAVE BANK TRANSFER
+    // ==========================================================
 
-          narration:
-            "ETrend Account Withdrawal"
-        },
-        {
-          headers: {
-            Authorization:
-              `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-            "Content-Type":
-              "application/json",
-            Accept:
-              "application/json"
+    let transferResponse;
+
+    try {
+
+      transferResponse =
+        await axios.post(
+          "https://api.flutterwave.com/v3/transfers",
+          {
+            account_bank:
+              String(bankCode),
+
+            account_number:
+              String(accountNumber),
+
+            amount:
+              transferAmount,
+
+            currency:
+              "NGN",
+
+            debit_currency:
+              "NGN",
+
+            debit_subaccount:
+              account.flutterwaveAccountReference,
+
+            reference,
+
+            narration:
+              "ETrend Account Withdrawal"
+          },
+          {
+            headers: {
+              Authorization:
+                `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+
+              "Content-Type":
+                "application/json",
+
+              Accept:
+                "application/json"
+            }
           }
-        }
+        );
+
+    } catch (transferError) {
+
+      console.error(
+        "❌ Flutterwave transfer request failed:"
       );
+
+      console.error(
+        transferError.response?.data ||
+        transferError.message
+      );
+
+      await etrendTransfer.update({
+        status:
+          "FAILED",
+
+        feeStatus:
+          "NOT_CHARGED"
+      });
+
+      return res.status(400).json({
+        message:
+          transferError.response?.data?.message ||
+          "Flutterwave could not initiate the withdrawal."
+      });
+    }
+
+    // ==========================================================
+    // 9. LOG FLUTTERWAVE RESPONSE
+    // ==========================================================
 
     console.log(
       "Flutterwave transfer response:",
@@ -829,19 +964,32 @@ router.post("/transfer", async (req, res) => {
     );
 
     // ==========================================================
-    // 8. CONFIRM FLUTTERWAVE ACCEPTED THE TRANSFER
+    // 10. CHECK FLUTTERWAVE API RESPONSE
     // ==========================================================
 
     if (
       transferResponse.data?.status !==
       "success"
     ) {
+
+      await etrendTransfer.update({
+        status:
+          "FAILED",
+
+        feeStatus:
+          "NOT_CHARGED"
+      });
+
       return res.status(400).json({
         message:
           transferResponse.data?.message ||
           "Flutterwave could not initiate the withdrawal."
       });
     }
+
+    // ==========================================================
+    // 11. GET FLUTTERWAVE TRANSFER DATA
+    // ==========================================================
 
     const transfer =
       transferResponse.data?.data;
@@ -850,92 +998,42 @@ router.post("/transfer", async (req, res) => {
       transfer?.id || null;
 
     const transferStatus =
-      transfer?.status || null;
+      String(
+        transfer?.status ||
+        "NEW"
+      ).toUpperCase();
 
-    // ==========================================================
-    // 9. SERVICE FEE
-    // ==========================================================
-    //
-    // The ETrend fee is 0.9% of the amount being transferred.
-    //
-    // We DO NOT immediately send the fee to your merchant
-    // account when the transfer is merely queued.
-    //
-    // A proper webhook/status confirmation should confirm
-    // the customer's withdrawal before the service fee is
-    // finally collected.
-    //
-    // ==========================================================
-
-    let serviceFeeTransfer = null;
-
-    if (
-      String(transferStatus).toUpperCase() ===
-      "SUCCESSFUL"
-    ) {
-      const serviceFeeReference =
-        `ETREND_FEE_${userId}_${Date.now()}`;
-
-      const feeTransferResponse =
-        await axios.post(
-          "https://api.flutterwave.com/v3/transfers",
-          {
-            // Flutterwave merchant account
-            account_bank:
-              "flutterwave",
-
-            // Your Flutterwave Merchant ID
-            account_number:
-              "1735584835777",
-
-            amount:
-              serviceFee,
-
-            currency:
-              "NGN",
-
-            debit_currency:
-              "NGN",
-
-            // Take the service fee from the
-            // customer's ETrend payout subaccount
-            debit_subaccount:
-              account.flutterwaveAccountReference,
-
-            reference:
-              serviceFeeReference,
-
-            narration:
-              "ETrend Transfer Service Fee"
-          },
-          {
-            headers: {
-              Authorization:
-                `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-              "Content-Type":
-                "application/json",
-              Accept:
-                "application/json"
-            }
-          }
-        );
-
-      console.log(
-        "ETrend service fee response:",
-        JSON.stringify(
-          feeTransferResponse.data,
-          null,
-          2
-        )
+    const flutterwaveFee =
+      Number(
+        transfer?.fee || 0
       );
 
-      serviceFeeTransfer =
-        feeTransferResponse.data?.data ||
-        null;
-    }
+    // ==========================================================
+    // 12. UPDATE LOCAL RECORD
+    // ==========================================================
+
+    await etrendTransfer.update({
+      flutterwaveTransferId:
+        transferId
+          ? String(
+              transferId
+            )
+          : null,
+
+      status:
+        transferStatus,
+
+      flutterwaveFee
+    });
 
     // ==========================================================
-    // 10. RETURN RESULT
+    // 13. IMPORTANT:
+    //
+    // DO NOT COLLECT ETREND FEE HERE.
+    //
+    // Flutterwave normally returns NEW first.
+    // The webhook will collect the fee only when the
+    // bank transfer becomes SUCCESSFUL.
     // ==========================================================
 
     return res.json({
@@ -975,43 +1073,29 @@ router.post("/transfer", async (req, res) => {
           transfer?.full_name ||
           null,
 
-        flutterwaveFee:
-          Number(
-            transfer?.fee || 0
-          )
+        flutterwaveFee
       },
 
       etrendFee: {
-        rate: "0.9%",
-        amount: serviceFee,
-        totalDebit: totalRequired,
+        rate:
+          "0.9%",
+
+        amount:
+          serviceFee,
+
+        totalDebit:
+          totalRequired,
+
         charged:
-          !!serviceFeeTransfer
-      },
+          false,
 
-      serviceFeeTransfer:
-        serviceFeeTransfer
-          ? {
-              id:
-                serviceFeeTransfer.id ||
-                null,
-
-              reference:
-                serviceFeeTransfer.reference ||
-                null,
-
-              status:
-                serviceFeeTransfer.status ||
-                null,
-
-              amount:
-                serviceFeeTransfer.amount ||
-                serviceFee
-            }
-          : null
+        status:
+          "PENDING"
+      }
     });
 
   } catch (error) {
+
     console.error(
       "❌ ETrend transfer failed:"
     );
@@ -1030,4 +1114,422 @@ router.post("/transfer", async (req, res) => {
   }
 });
 
+
+router.post("/webhook", async (req, res) => {
+  try {
+    console.log("======================================");
+    console.log("FLUTTERWAVE ETREND WEBHOOK RECEIVED");
+    console.log("======================================");
+
+    // ==========================================================
+    // 1. VERIFY FLUTTERWAVE SIGNATURE
+    // ==========================================================
+
+    const crypto = require("crypto");
+
+    const signature =
+      req.headers["flutterwave-signature"];
+
+    const secretHash =
+      process.env.FLW_SECRET_HASH;
+
+    if (!signature || !secretHash) {
+      console.error(
+        "❌ Missing Flutterwave webhook signature or secret hash."
+      );
+
+      return res.status(401).json({
+        message: "Invalid webhook."
+      });
+    }
+
+    const expectedSignature =
+      crypto
+        .createHmac("sha256", secretHash)
+        .update(req.rawBody || "")
+        .digest("base64");
+
+    if (signature !== expectedSignature) {
+      console.error(
+        "❌ Invalid Flutterwave webhook signature."
+      );
+
+      return res.status(401).json({
+        message: "Invalid webhook signature."
+      });
+    }
+
+    // ==========================================================
+    // 2. READ WEBHOOK
+    // ==========================================================
+
+    const event = req.body?.event;
+
+    const transfer =
+      req.body?.data;
+
+    console.log(
+      "Webhook event:",
+      event
+    );
+
+    console.log(
+      "Webhook data:",
+      JSON.stringify(
+        transfer,
+        null,
+        2
+      )
+    );
+
+    if (event !== "transfer.completed") {
+      console.log(
+        "ℹ️ Event ignored:",
+        event
+      );
+
+      return res.sendStatus(200);
+    }
+
+    if (!transfer) {
+      console.error(
+        "❌ Transfer data missing."
+      );
+
+      return res.sendStatus(200);
+    }
+
+    // ==========================================================
+    // 3. GET IMPORTANT TRANSFER DETAILS
+    // ==========================================================
+
+    const reference =
+      transfer.reference;
+
+    const transferId =
+      transfer.id;
+
+    const transferStatus =
+      String(
+        transfer.status || ""
+      ).toUpperCase();
+
+    if (!reference) {
+      console.error(
+        "❌ Transfer reference missing."
+      );
+
+      return res.sendStatus(200);
+    }
+
+    console.log(
+      "Transfer reference:",
+      reference
+    );
+
+    console.log(
+      "Transfer ID:",
+      transferId
+    );
+
+    console.log(
+      "Transfer status:",
+      transferStatus
+    );
+
+    // ==========================================================
+    // 4. FIND OUR ETREND TRANSFER
+    // ==========================================================
+
+    const etrendTransfer =
+      await ETrendTransfer.findOne({
+        where: {
+          reference
+        }
+      });
+
+    if (!etrendTransfer) {
+      console.log(
+        "ℹ️ Transfer does not belong to ETrend:",
+        reference
+      );
+
+      return res.sendStatus(200);
+    }
+
+    // ==========================================================
+    // 5. UPDATE PROVIDER TRANSFER STATUS
+    // ==========================================================
+
+    etrendTransfer.flutterwaveTransferId =
+      transferId
+        ? String(transferId)
+        : etrendTransfer.flutterwaveTransferId;
+
+    etrendTransfer.status =
+      transferStatus;
+
+    etrendTransfer.flutterwaveFee =
+      Number(
+        transfer.fee || 0
+      );
+
+    if (
+      transferStatus ===
+      "SUCCESSFUL"
+    ) {
+      etrendTransfer.completedAt =
+        new Date();
+    }
+
+    await etrendTransfer.save();
+
+    // ==========================================================
+    // 6. FAILED TRANSFER
+    // ==========================================================
+
+    if (
+      transferStatus !==
+      "SUCCESSFUL"
+    ) {
+      console.log(
+        "❌ ETrend transfer was not successful."
+      );
+
+      console.log(
+        "No ETrend service fee will be collected."
+      );
+
+      etrendTransfer.feeStatus =
+        "NOT_CHARGED";
+
+      await etrendTransfer.save();
+
+      return res.sendStatus(200);
+    }
+
+    // ==========================================================
+    // 7. PREVENT DUPLICATE FEE COLLECTION
+    // ==========================================================
+
+    if (
+      etrendTransfer.feeStatus ===
+        "CHARGED" ||
+      etrendTransfer.feeTransferStatus ===
+        "SUCCESSFUL"
+    ) {
+      console.log(
+        "ℹ️ ETrend service fee has already been collected."
+      );
+
+      return res.sendStatus(200);
+    }
+
+    // ==========================================================
+    // 8. CALCULATE ETREND SERVICE FEE
+    // ==========================================================
+
+    const transferAmount =
+      Number(
+        etrendTransfer.amount
+      );
+
+    const serviceFee =
+      Number(
+        (
+          transferAmount *
+          0.009
+        ).toFixed(2)
+      );
+
+    console.log(
+      "--------------------------------------"
+    );
+
+    console.log(
+      "ETrend withdrawal amount:",
+      transferAmount
+    );
+
+    console.log(
+      "ETrend service fee 0.9%:",
+      serviceFee
+    );
+
+    console.log(
+      "--------------------------------------"
+    );
+
+    // ==========================================================
+    // 9. SAVE CALCULATED FEE
+    // ==========================================================
+
+    etrendTransfer.etrendFee =
+      serviceFee;
+
+    etrendTransfer.feeStatus =
+      "PROCESSING";
+
+    await etrendTransfer.save();
+
+    // ==========================================================
+    // 10. CREATE FEE TRANSFER
+    // ==========================================================
+
+    const feeReference =
+      `ETREND_FEE_${etrendTransfer.userId}_${Date.now()}`;
+
+    try {
+
+      const feeTransferResponse =
+        await axios.post(
+          "https://api.flutterwave.com/v3/transfers",
+          {
+            account_bank:
+              "flutterwave",
+
+            account_number:
+              "1735584835777",
+
+            amount:
+              serviceFee,
+
+            currency:
+              "NGN",
+
+            debit_currency:
+              "NGN",
+
+            debit_subaccount:
+              (
+                await ETrendAccount.findOne({
+                  where: {
+                    userId:
+                      etrendTransfer.userId
+                  }
+                })
+              )?.flutterwaveAccountReference,
+
+            reference:
+              feeReference,
+
+            narration:
+              "ETrend Transfer Service Fee"
+          },
+          {
+            headers: {
+              Authorization:
+                `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+
+              "Content-Type":
+                "application/json",
+
+              Accept:
+                "application/json"
+            }
+          }
+        );
+
+      console.log(
+        "======================================"
+      );
+
+      console.log(
+        "ETREND SERVICE FEE TRANSFER RESPONSE"
+      );
+
+      console.log(
+        JSON.stringify(
+          feeTransferResponse.data,
+          null,
+          2
+        )
+      );
+
+      console.log(
+        "======================================"
+      );
+
+      const feeTransfer =
+        feeTransferResponse.data?.data;
+
+      etrendTransfer.feeTransferReference =
+        feeReference;
+
+      etrendTransfer.feeTransferId =
+        feeTransfer?.id
+          ? String(
+              feeTransfer.id
+            )
+          : null;
+
+      etrendTransfer.feeTransferStatus =
+        String(
+          feeTransfer?.status ||
+          "NEW"
+        ).toUpperCase();
+
+      /*
+       * The fee transfer itself may also be asynchronous.
+       *
+       * Therefore we do NOT mark the fee as finally
+       * CHARGED just because Flutterwave accepted it.
+       */
+
+      if (
+        etrendTransfer.feeTransferStatus ===
+        "SUCCESSFUL"
+      ) {
+        etrendTransfer.feeStatus =
+          "CHARGED";
+      } else {
+        etrendTransfer.feeStatus =
+          "PROCESSING";
+      }
+
+      await etrendTransfer.save();
+
+    } catch (feeError) {
+
+      console.error(
+        "❌ ETrend service fee transfer failed:"
+      );
+
+      console.error(
+        feeError.response?.data ||
+        feeError.message
+      );
+
+      etrendTransfer.feeStatus =
+        "FAILED";
+
+      await etrendTransfer.save();
+    }
+
+    // ==========================================================
+    // 11. ACKNOWLEDGE WEBHOOK
+    // ==========================================================
+
+    return res.sendStatus(200);
+
+  } catch (error) {
+
+    console.error(
+      "❌ ETrend webhook processing failed:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
+    );
+
+    /*
+     * We still return 200 after receiving a valid webhook.
+     * The transfer record has already been updated, and
+     * Flutterwave should not endlessly retry it.
+     */
+
+    return res.sendStatus(200);
+  }
+});
 module.exports = router;
