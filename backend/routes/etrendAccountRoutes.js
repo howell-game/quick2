@@ -1122,20 +1122,28 @@ router.post("/webhook", async (req, res) => {
     console.log("======================================");
 
     // ==========================================================
-    // 1. VERIFY FLUTTERWAVE SIGNATURE
+    // 1. VERIFY FLUTTERWAVE WEBHOOK SECRET HASH
     // ==========================================================
-
-    const crypto = require("crypto");
-
-    const signature =
-      req.headers["flutterwave-signature"];
 
     const secretHash =
       process.env.FLW_SECRET_HASH;
 
-    if (!signature || !secretHash) {
+    const receivedHash =
+      req.headers["verif-hash"];
+
+    console.log(
+      "Flutterwave verif-hash received:",
+      !!receivedHash
+    );
+
+    console.log(
+      "FLW_SECRET_HASH configured:",
+      !!secretHash
+    );
+
+    if (!receivedHash || !secretHash) {
       console.error(
-        "❌ Missing Flutterwave webhook signature or secret hash."
+        "❌ Missing Flutterwave webhook secret hash."
       );
 
       return res.status(401).json({
@@ -1143,15 +1151,9 @@ router.post("/webhook", async (req, res) => {
       });
     }
 
-    const expectedSignature =
-      crypto
-        .createHmac("sha256", secretHash)
-        .update(req.rawBody || "")
-        .digest("base64");
-
-    if (signature !== expectedSignature) {
+    if (receivedHash !== secretHash) {
       console.error(
-        "❌ Invalid Flutterwave webhook signature."
+        "❌ Flutterwave webhook secret hash does not match."
       );
 
       return res.status(401).json({
@@ -1159,11 +1161,16 @@ router.post("/webhook", async (req, res) => {
       });
     }
 
+    console.log(
+      "✅ Flutterwave webhook secret hash verified."
+    );
+
     // ==========================================================
     // 2. READ WEBHOOK
     // ==========================================================
 
-    const event = req.body?.event;
+    const event =
+      req.body?.event;
 
     const transfer =
       req.body?.data;
@@ -1182,7 +1189,14 @@ router.post("/webhook", async (req, res) => {
       )
     );
 
-    if (event !== "transfer.completed") {
+    // ==========================================================
+    // 3. IGNORE OTHER EVENTS
+    // ==========================================================
+
+    if (
+      event !==
+      "transfer.completed"
+    ) {
       console.log(
         "ℹ️ Event ignored:",
         event
@@ -1200,7 +1214,7 @@ router.post("/webhook", async (req, res) => {
     }
 
     // ==========================================================
-    // 3. GET IMPORTANT TRANSFER DETAILS
+    // 4. GET TRANSFER DETAILS
     // ==========================================================
 
     const reference =
@@ -1212,7 +1226,14 @@ router.post("/webhook", async (req, res) => {
     const transferStatus =
       String(
         transfer.status || ""
-      ).toUpperCase();
+      )
+        .trim()
+        .toUpperCase();
+
+    const flutterwaveFee =
+      Number(
+        transfer.fee || 0
+      );
 
     if (!reference) {
       console.error(
@@ -1237,8 +1258,13 @@ router.post("/webhook", async (req, res) => {
       transferStatus
     );
 
+    console.log(
+      "Flutterwave transfer fee:",
+      flutterwaveFee
+    );
+
     // ==========================================================
-    // 4. FIND OUR ETREND TRANSFER
+    // 5. FIND OUR ETREND TRANSFER
     // ==========================================================
 
     const etrendTransfer =
@@ -1257,35 +1283,88 @@ router.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
+    console.log(
+      "✅ ETrend transfer found."
+    );
+
     // ==========================================================
-    // 5. UPDATE PROVIDER TRANSFER STATUS
+    // 6. UPDATE PROVIDER TRANSFER INFORMATION
     // ==========================================================
 
-    etrendTransfer.flutterwaveTransferId =
-      transferId
-        ? String(transferId)
-        : etrendTransfer.flutterwaveTransferId;
+    if (transferId) {
+      etrendTransfer.flutterwaveTransferId =
+        String(transferId);
+    }
 
     etrendTransfer.status =
       transferStatus;
 
     etrendTransfer.flutterwaveFee =
-      Number(
-        transfer.fee || 0
-      );
+      flutterwaveFee;
 
     if (
       transferStatus ===
       "SUCCESSFUL"
     ) {
       etrendTransfer.completedAt =
+        etrendTransfer.completedAt ||
         new Date();
     }
 
     await etrendTransfer.save();
 
     // ==========================================================
-    // 6. FAILED TRANSFER
+    // 7. SUCCESSFUL TRANSFER
+    // ==========================================================
+
+    if (
+      transferStatus ===
+      "SUCCESSFUL"
+    ) {
+      console.log(
+        "✅ Flutterwave transfer was SUCCESSFUL."
+      );
+    }
+
+    // ==========================================================
+    // 8. FAILED TRANSFER
+    // ==========================================================
+
+    if (
+      transferStatus ===
+      "FAILED"
+    ) {
+      console.log(
+        "❌ Flutterwave transfer FAILED."
+      );
+
+      console.log(
+        "No ETrend service fee will be collected."
+      );
+
+      /*
+       * Do not overwrite CHARGED or PROCESSING
+       * in the unlikely event a duplicate/late
+       * webhook arrives.
+       */
+
+      if (
+        etrendTransfer.feeStatus !==
+          "CHARGED" &&
+        etrendTransfer.feeStatus !==
+          "PROCESSING"
+      ) {
+        etrendTransfer.feeStatus =
+          "NOT_CHARGED";
+
+        await etrendTransfer.save();
+      }
+
+      return res.sendStatus(200);
+    }
+
+    // ==========================================================
+    // 9. IGNORE INTERMEDIATE TRANSFER STATUS
     // ==========================================================
 
     if (
@@ -1293,46 +1372,77 @@ router.post("/webhook", async (req, res) => {
       "SUCCESSFUL"
     ) {
       console.log(
-        "❌ ETrend transfer was not successful."
+        "ℹ️ Transfer is not yet successful."
       );
 
       console.log(
-        "No ETrend service fee will be collected."
+        "Current Flutterwave status:",
+        transferStatus
       );
 
-      etrendTransfer.feeStatus =
-        "NOT_CHARGED";
-
-      await etrendTransfer.save();
+      console.log(
+        "ETrend service fee will NOT be collected yet."
+      );
 
       return res.sendStatus(200);
     }
 
     // ==========================================================
-    // 7. PREVENT DUPLICATE FEE COLLECTION
+    // 10. PREVENT DUPLICATE FEE COLLECTION
     // ==========================================================
 
     if (
       etrendTransfer.feeStatus ===
         "CHARGED" ||
+      etrendTransfer.feeStatus ===
+        "PROCESSING" ||
       etrendTransfer.feeTransferStatus ===
         "SUCCESSFUL"
     ) {
       console.log(
-        "ℹ️ ETrend service fee has already been collected."
+        "ℹ️ ETrend service fee has already been processed."
+      );
+
+      console.log(
+        "Fee status:",
+        etrendTransfer.feeStatus
+      );
+
+      console.log(
+        "Fee transfer status:",
+        etrendTransfer.feeTransferStatus
       );
 
       return res.sendStatus(200);
     }
 
     // ==========================================================
-    // 8. CALCULATE ETREND SERVICE FEE
+    // 11. CALCULATE ETREND SERVICE FEE
     // ==========================================================
 
     const transferAmount =
       Number(
         etrendTransfer.amount
       );
+
+    if (
+      !Number.isFinite(
+        transferAmount
+      ) ||
+      transferAmount <= 0
+    ) {
+      console.error(
+        "❌ Invalid ETrend transfer amount:",
+        etrendTransfer.amount
+      );
+
+      etrendTransfer.feeStatus =
+        "FAILED";
+
+      await etrendTransfer.save();
+
+      return res.sendStatus(200);
+    }
 
     const serviceFee =
       Number(
@@ -1352,7 +1462,12 @@ router.post("/webhook", async (req, res) => {
     );
 
     console.log(
-      "ETrend service fee 0.9%:",
+      "Flutterwave transfer fee:",
+      flutterwaveFee
+    );
+
+    console.log(
+      "ETrend service fee (0.9%):",
       serviceFee
     );
 
@@ -1361,7 +1476,48 @@ router.post("/webhook", async (req, res) => {
     );
 
     // ==========================================================
-    // 9. SAVE CALCULATED FEE
+    // 12. FIND USER'S ETREND ACCOUNT
+    // ==========================================================
+
+    const etrendAccount =
+      await ETrendAccount.findOne({
+        where: {
+          userId:
+            etrendTransfer.userId
+        }
+      });
+
+    if (!etrendAccount) {
+      console.error(
+        "❌ ETrend account not found for user:",
+        etrendTransfer.userId
+      );
+
+      etrendTransfer.feeStatus =
+        "FAILED";
+
+      await etrendTransfer.save();
+
+      return res.sendStatus(200);
+    }
+
+    if (
+      !etrendAccount.flutterwaveAccountReference
+    ) {
+      console.error(
+        "❌ Flutterwave ETrend subaccount reference missing."
+      );
+
+      etrendTransfer.feeStatus =
+        "FAILED";
+
+      await etrendTransfer.save();
+
+      return res.sendStatus(200);
+    }
+
+    // ==========================================================
+    // 13. SAVE CALCULATED FEE
     // ==========================================================
 
     etrendTransfer.etrendFee =
@@ -1373,14 +1529,22 @@ router.post("/webhook", async (req, res) => {
     await etrendTransfer.save();
 
     // ==========================================================
-    // 10. CREATE FEE TRANSFER
+    // 14. CREATE UNIQUE FEE TRANSFER REFERENCE
     // ==========================================================
 
     const feeReference =
       `ETREND_FEE_${etrendTransfer.userId}_${Date.now()}`;
 
-    try {
+    console.log(
+      "ETrend fee transfer reference:",
+      feeReference
+    );
 
+    // ==========================================================
+    // 15. TRANSFER ETREND SERVICE FEE TO MERCHANT
+    // ==========================================================
+
+    try {
       const feeTransferResponse =
         await axios.post(
           "https://api.flutterwave.com/v3/transfers",
@@ -1401,20 +1565,17 @@ router.post("/webhook", async (req, res) => {
               "NGN",
 
             debit_subaccount:
-              (
-                await ETrendAccount.findOne({
-                  where: {
-                    userId:
-                      etrendTransfer.userId
-                  }
-                })
-              )?.flutterwaveAccountReference,
+              etrendAccount
+                .flutterwaveAccountReference,
 
             reference:
               feeReference,
 
             narration:
-              "ETrend Transfer Service Fee"
+              "ETrend Transfer Service Fee",
+
+            callback_url:
+              "https://trendgame-backend.onrender.com/api/etrend-account/webhook"
           },
           {
             headers: {
@@ -1467,13 +1628,15 @@ router.post("/webhook", async (req, res) => {
         String(
           feeTransfer?.status ||
           "NEW"
-        ).toUpperCase();
+        )
+          .trim()
+          .toUpperCase();
 
       /*
-       * The fee transfer itself may also be asynchronous.
+       * Flutterwave may initially return NEW.
        *
-       * Therefore we do NOT mark the fee as finally
-       * CHARGED just because Flutterwave accepted it.
+       * That does NOT mean the fee transfer
+       * has finally succeeded.
        */
 
       if (
@@ -1482,9 +1645,27 @@ router.post("/webhook", async (req, res) => {
       ) {
         etrendTransfer.feeStatus =
           "CHARGED";
+
+        console.log(
+          "✅ ETrend service fee transfer was SUCCESSFUL."
+        );
+      } else if (
+        etrendTransfer.feeTransferStatus ===
+        "FAILED"
+      ) {
+        etrendTransfer.feeStatus =
+          "FAILED";
+
+        console.error(
+          "❌ ETrend service fee transfer FAILED."
+        );
       } else {
         etrendTransfer.feeStatus =
           "PROCESSING";
+
+        console.log(
+          "⏳ ETrend service fee transfer is still processing."
+        );
       }
 
       await etrendTransfer.save();
@@ -1507,7 +1688,7 @@ router.post("/webhook", async (req, res) => {
     }
 
     // ==========================================================
-    // 11. ACKNOWLEDGE WEBHOOK
+    // 16. ACKNOWLEDGE WEBHOOK
     // ==========================================================
 
     return res.sendStatus(200);
@@ -1524,9 +1705,8 @@ router.post("/webhook", async (req, res) => {
     );
 
     /*
-     * We still return 200 after receiving a valid webhook.
-     * The transfer record has already been updated, and
-     * Flutterwave should not endlessly retry it.
+     * Flutterwave expects HTTP 200 when the webhook
+     * has been received successfully.
      */
 
     return res.sendStatus(200);
