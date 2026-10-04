@@ -23,6 +23,7 @@ const outcomeRoutes = require("./routes/outcomeRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const etrendAccountRoutes = require("./routes/etrendAccountRoutes");
+const etrendAirtimeRoutes = require("./routes/etrendAirtimeRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -73,6 +74,7 @@ app.use("/api/balance", balanceRoutes);
 app.use("/api/outcomes", outcomeRoutes);
 app.use("/api/users", balanceRoutes);
 app.use("/api/etrend-account", etrendAccountRoutes);
+app.use("/api/etrend-airtime", etrendAirtimeRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/investments", investmentRoutes);
