@@ -484,7 +484,8 @@ router.post("/buy", async (req, res) => {
 
     if (
       responseCode === "016" ||
-      responseCode === "091"
+      responseCode === "091" ||
+      responseCode === "028"
     ) {
       airtimeTransaction.status =
         "FAILED";
