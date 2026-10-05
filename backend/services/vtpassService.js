@@ -20,12 +20,16 @@ const generateRequestId = () => {
   const timestamp =
     `${year}${month}${day}${hours}${minutes}`;
 
-  const randomPart = Math.random()
-    .toString(36)
-    .substring(2, 12);
+  const randomPart =
+    Math.random().toString(36).substring(2, 12);
 
   return `${timestamp}${randomPart}`;
 };
+
+
+// ==========================================================
+// AIRTIME
+// ==========================================================
 
 const buyAirtime = async ({
   serviceID,
@@ -42,7 +46,9 @@ const buyAirtime = async ({
   }
 
   if (!amount || Number(amount) <= 0) {
-    throw new Error("A valid airtime amount is required.");
+    throw new Error(
+      "A valid airtime amount is required."
+    );
   }
 
   const finalRequestId =
@@ -72,25 +78,200 @@ const buyAirtime = async ({
       requestId: finalRequestId,
       data: response.data
     };
+
   } catch (error) {
-    console.error("❌ VTpass airtime request failed:");
+    console.error(
+      "❌ VTpass airtime request failed:"
+    );
 
     console.error(
-      error.response?.data || error.message
+      error.response?.data ||
+      error.message
     );
 
     return {
       success: false,
       requestId: finalRequestId,
-      data: error.response?.data || null,
+      data:
+        error.response?.data ||
+        null,
       error: error.message
     };
   }
 };
 
-const requeryTransaction = async (requestId) => {
+
+// ==========================================================
+// DATA - GET PACKAGES
+// ==========================================================
+
+const getDataPackages = async (serviceID) => {
+  if (!serviceID) {
+    throw new Error(
+      "VTpass data service ID is required."
+    );
+  }
+
+  try {
+    const response = await axios.get(
+      `${VTPASS_BASE_URL}/service-variations`,
+      {
+        params: {
+          serviceID
+        },
+
+        headers: {
+          "api-key":
+            process.env.VTPASS_API_KEY,
+
+          "secret-key":
+            process.env.VTPASS_SECRET_KEY,
+
+          "Content-Type":
+            "application/json"
+        },
+
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      data: response.data
+    };
+
+  } catch (error) {
+    console.error(
+      "❌ VTpass data packages request failed:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
+    );
+
+    return {
+      success: false,
+      data:
+        error.response?.data ||
+        null,
+      error: error.message
+    };
+  }
+};
+
+
+// ==========================================================
+// DATA - BUY
+// ==========================================================
+
+const buyData = async ({
+  serviceID,
+  billersCode,
+  variationCode,
+  amount,
+  phone,
+  requestId
+}) => {
+  if (!serviceID) {
+    throw new Error(
+      "VTpass data service ID is required."
+    );
+  }
+
+  if (!billersCode) {
+    throw new Error(
+      "Data recipient phone number is required."
+    );
+  }
+
+  if (!variationCode) {
+    throw new Error(
+      "Data variation code is required."
+    );
+  }
+
+  if (!amount || Number(amount) <= 0) {
+    throw new Error(
+      "A valid data amount is required."
+    );
+  }
+
+  if (!phone) {
+    throw new Error(
+      "Customer phone number is required."
+    );
+  }
+
+  const finalRequestId =
+    requestId || generateRequestId();
+
+  try {
+    const response = await axios.post(
+      `${VTPASS_BASE_URL}/pay`,
+      {
+        request_id: finalRequestId,
+        serviceID,
+        billersCode: String(billersCode),
+        variation_code: variationCode,
+        amount: Number(amount),
+        phone: String(phone)
+      },
+      {
+        headers: {
+          "api-key":
+            process.env.VTPASS_API_KEY,
+
+          "secret-key":
+            process.env.VTPASS_SECRET_KEY,
+
+          "Content-Type":
+            "application/json"
+        },
+
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      requestId: finalRequestId,
+      data: response.data
+    };
+
+  } catch (error) {
+    console.error(
+      "❌ VTpass data purchase failed:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
+    );
+
+    return {
+      success: false,
+      requestId: finalRequestId,
+      data:
+        error.response?.data ||
+        null,
+      error: error.message
+    };
+  }
+};
+
+
+// ==========================================================
+// REQUERY
+// ==========================================================
+
+const requeryTransaction = async (
+  requestId
+) => {
   if (!requestId) {
-    throw new Error("VTpass request ID is required.");
+    throw new Error(
+      "VTpass request ID is required."
+    );
   }
 
   try {
@@ -101,10 +282,16 @@ const requeryTransaction = async (requestId) => {
       },
       {
         headers: {
-          "api-key": process.env.VTPASS_API_KEY,
-          "secret-key": process.env.VTPASS_SECRET_KEY,
-          "Content-Type": "application/json"
+          "api-key":
+            process.env.VTPASS_API_KEY,
+
+          "secret-key":
+            process.env.VTPASS_SECRET_KEY,
+
+          "Content-Type":
+            "application/json"
         },
+
         timeout: 30000
       }
     );
@@ -114,24 +301,35 @@ const requeryTransaction = async (requestId) => {
       requestId,
       data: response.data
     };
+
   } catch (error) {
-    console.error("❌ VTpass transaction requery failed:");
+    console.error(
+      "❌ VTpass transaction requery failed:"
+    );
 
     console.error(
-      error.response?.data || error.message
+      error.response?.data ||
+      error.message
     );
 
     return {
       success: false,
       requestId,
-      data: error.response?.data || null,
+
+      data:
+        error.response?.data ||
+        null,
+
       error: error.message
     };
   }
 };
 
+
 module.exports = {
   buyAirtime,
+  getDataPackages,
+  buyData,
   requeryTransaction,
   generateRequestId
 };

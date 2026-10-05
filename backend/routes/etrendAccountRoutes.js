@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require("uuid");
 const User = require("../models/User");
 const ETrendAccount = require("../models/ETrendAccount");
 const ETrendTransfer = require("../models/ETrendTransfer");
+const ETrendDataTransaction =require("../models/ETrendDataTransaction");
 const ETrendAirtimeTransaction = require("../models/ETrendAirtimeTransaction");
 
 
@@ -1419,6 +1420,77 @@ router.post("/webhook", async (req, res) => {
       // Do not process it as an ETrend withdrawal.
       return res.sendStatus(200);
     }
+
+    // ==========================================================
+// CHECK IF THIS IS AN ETREND DATA SETTLEMENT
+// ==========================================================
+
+const dataTransaction =
+  await ETrendDataTransaction.findOne({
+    where: {
+      flutterwaveTransferReference:
+        reference
+    }
+  });
+
+if (dataTransaction) {
+
+  console.log(
+    "✅ This webhook belongs to an ETrend DATA settlement."
+  );
+
+  if (transferId) {
+    dataTransaction.flutterwaveTransferId =
+      String(transferId);
+  }
+
+  dataTransaction.flutterwaveTransferStatus =
+    transferStatus;
+
+
+  if (
+    transferStatus ===
+    "SUCCESSFUL"
+  ) {
+
+    dataTransaction.status =
+      "SUCCESSFUL";
+
+    dataTransaction.completedAt =
+      dataTransaction.completedAt ||
+      new Date();
+
+    console.log(
+      "✅ ETrend data settlement successfully completed."
+    );
+
+  } else if (
+    transferStatus ===
+    "FAILED"
+  ) {
+
+    dataTransaction.status =
+      "SETTLEMENT_FAILED";
+
+    console.error(
+      "❌ ETrend data settlement failed."
+    );
+
+  } else {
+
+    dataTransaction.status =
+      "SETTLEMENT_PROCESSING";
+
+    console.log(
+      "⏳ ETrend data settlement is still processing."
+    );
+  }
+
+
+  await dataTransaction.save();
+
+  return res.sendStatus(200);
+}
 
 
     // ==========================================================

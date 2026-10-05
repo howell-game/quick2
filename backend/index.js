@@ -12,6 +12,7 @@ const bodyParser = require("body-parser");
 const sequelize = require("./db");  // Import your Sequelize instance
 
 const { startAllCycles } = require("./utils/timeframeCycles");
+const etrendDataRoutes =require("./routes/etrendDataRoutes");
 const Admin = require("./models/Admin");
 const createInitialAdmin = require("./utils/createAdmin");
 const ETrendAccount = require("./models/ETrendAccount");
@@ -76,6 +77,7 @@ app.use("/api/users", balanceRoutes);
 app.use("/api/etrend-account", etrendAccountRoutes);
 app.use("/api/etrend-airtime", etrendAirtimeRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/etrend-data", etrendDataRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/investments", investmentRoutes);
 // Serve static files from Vue.js build
