@@ -324,11 +324,175 @@ const requeryTransaction = async (
   }
 };
 
+const getTVPackages = async (serviceID) => {
+  if (!serviceID) {
+    throw new Error("VTpass TV service ID is required.");
+  }
+
+  try {
+    const response = await axios.get(
+      `${VTPASS_BASE_URL}/service-variations`,
+      {
+        params: {
+          serviceID
+        },
+        headers: {
+          "api-key": process.env.VTPASS_API_KEY,
+          "secret-key": process.env.VTPASS_SECRET_KEY,
+          "Content-Type": "application/json"
+        },
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      data: response.data
+    };
+  } catch (error) {
+    console.error("❌ VTpass TV packages request failed:");
+    console.error(
+      error.response?.data || error.message
+    );
+
+    return {
+      success: false,
+      data: error.response?.data || null,
+      error: error.message
+    };
+  }
+};
+
+
+const verifyTVSmartcard = async ({
+  serviceID,
+  billersCode
+}) => {
+  if (!serviceID) {
+    throw new Error("VTpass TV service ID is required.");
+  }
+
+  if (!billersCode) {
+    throw new Error("Smartcard number is required.");
+  }
+
+  try {
+    const response = await axios.post(
+      `${VTPASS_BASE_URL}/merchant-verify`,
+      {
+        serviceID,
+        billersCode: String(billersCode)
+      },
+      {
+        headers: {
+          "api-key": process.env.VTPASS_API_KEY,
+          "secret-key": process.env.VTPASS_SECRET_KEY,
+          "Content-Type": "application/json"
+        },
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      data: response.data
+    };
+  } catch (error) {
+    console.error("❌ VTpass TV smartcard verification failed:");
+    console.error(
+      error.response?.data || error.message
+    );
+
+    return {
+      success: false,
+      data: error.response?.data || null,
+      error: error.message
+    };
+  }
+};
+
+
+const buyTV = async ({
+  serviceID,
+  billersCode,
+  variationCode,
+  amount,
+  phone,
+  requestId,
+  subscriptionType = "change"
+}) => {
+  if (!serviceID) {
+    throw new Error("VTpass TV service ID is required.");
+  }
+
+  if (!billersCode) {
+    throw new Error("Smartcard number is required.");
+  }
+
+  if (!variationCode) {
+    throw new Error("TV package is required.");
+  }
+
+  if (!amount || Number(amount) <= 0) {
+    throw new Error("A valid TV subscription amount is required.");
+  }
+
+  if (!phone) {
+    throw new Error("Customer phone number is required.");
+  }
+
+  const finalRequestId =
+    requestId || generateRequestId();
+
+  try {
+    const response = await axios.post(
+      `${VTPASS_BASE_URL}/pay`,
+      {
+        request_id: finalRequestId,
+        serviceID,
+        billersCode: String(billersCode),
+        variation_code: variationCode,
+        amount: Number(amount),
+        phone: String(phone),
+        subscription_type: subscriptionType
+      },
+      {
+        headers: {
+          "api-key": process.env.VTPASS_API_KEY,
+          "secret-key": process.env.VTPASS_SECRET_KEY,
+          "Content-Type": "application/json"
+        },
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      requestId: finalRequestId,
+      data: response.data
+    };
+  } catch (error) {
+    console.error("❌ VTpass TV purchase failed:");
+    console.error(
+      error.response?.data || error.message
+    );
+
+    return {
+      success: false,
+      requestId: finalRequestId,
+      data: error.response?.data || null,
+      error: error.message
+    };
+  }
+};
 
 module.exports = {
   buyAirtime,
   getDataPackages,
   buyData,
+  getTVPackages,
+  verifyTVSmartcard,
+  buyTV,
   requeryTransaction,
   generateRequestId
 };

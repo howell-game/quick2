@@ -8,6 +8,7 @@ const ETrendAccount = require("../models/ETrendAccount");
 const ETrendTransfer = require("../models/ETrendTransfer");
 const ETrendDataTransaction =require("../models/ETrendDataTransaction");
 const ETrendAirtimeTransaction = require("../models/ETrendAirtimeTransaction");
+const ETrendTVTransaction = require("../models/ETrendTVTransaction");
 
 
 // ==========================================
@@ -1492,6 +1493,74 @@ if (dataTransaction) {
   return res.sendStatus(200);
 }
 
+// ==========================================================
+// CHECK IF THIS IS AN ETREND TV SETTLEMENT
+// ==========================================================
+
+const tvTransaction =
+  await ETrendTVTransaction.findOne({
+    where: {
+      flutterwaveTransferReference:
+        reference
+    }
+  });
+
+if (tvTransaction) {
+
+  console.log(
+    "✅ This webhook belongs to an ETrend TV settlement."
+  );
+
+  if (transferId) {
+    tvTransaction.flutterwaveTransferId =
+      String(transferId);
+  }
+
+  tvTransaction.flutterwaveTransferStatus =
+    transferStatus;
+
+  if (
+    transferStatus ===
+    "SUCCESSFUL"
+  ) {
+
+    tvTransaction.status =
+      "SUCCESSFUL";
+
+    tvTransaction.completedAt =
+      tvTransaction.completedAt ||
+      new Date();
+
+    console.log(
+      "✅ ETrend TV settlement successfully completed."
+    );
+
+  } else if (
+    transferStatus ===
+    "FAILED"
+  ) {
+
+    tvTransaction.status =
+      "SETTLEMENT_FAILED";
+
+    console.error(
+      "❌ ETrend TV settlement failed."
+    );
+
+  } else {
+
+    tvTransaction.status =
+      "SETTLEMENT_PROCESSING";
+
+    console.log(
+      "⏳ ETrend TV settlement is still processing."
+    );
+  }
+
+  await tvTransaction.save();
+
+  return res.sendStatus(200);
+}
 
     // ==========================================================
     // 6. FIND ORIGINAL ETREND TRANSFER
