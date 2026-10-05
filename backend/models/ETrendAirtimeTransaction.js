@@ -58,6 +58,22 @@ const ETrendAirtimeTransaction = sequelize.define(
       allowNull: true
     },
 
+    flutterwaveTransferId: {
+  type: DataTypes.STRING,
+  allowNull: true
+},
+
+flutterwaveTransferReference: {
+  type: DataTypes.STRING,
+  allowNull: true,
+  unique: true
+},
+
+flutterwaveTransferStatus: {
+  type: DataTypes.STRING,
+  allowNull: true
+},
+
     providerResponse: {
       type: DataTypes.JSONB,
       allowNull: true

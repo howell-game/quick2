@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require("uuid");
 const User = require("../models/User");
 const ETrendAccount = require("../models/ETrendAccount");
 const ETrendTransfer = require("../models/ETrendTransfer");
+const ETrendAirtimeTransaction = require("../models/ETrendAirtimeTransaction");
 
 
 // ==========================================
@@ -1339,6 +1340,86 @@ router.post("/webhook", async (req, res) => {
       // Do not process another ETrend fee.
       return res.sendStatus(200);
     }
+
+        // ==========================================================
+    // 5B. CHECK IF THIS IS AN ETREND AIRTIME SETTLEMENT
+    //
+    // Airtime settlement has its own reference:
+    //
+    // ETREND_AIRTIME_SETTLE_...
+    //
+    // If Flutterwave sends a webhook for this transfer,
+    // we ONLY update the airtime transaction status.
+    //
+    // We DO NOT process it as an ETrend withdrawal.
+    // ==========================================================
+
+    const airtimeTransaction =
+      await ETrendAirtimeTransaction.findOne({
+        where: {
+          flutterwaveTransferReference:
+            reference
+        }
+      });
+
+    if (airtimeTransaction) {
+      console.log(
+        "✅ This webhook belongs to an ETrend AIRTIME settlement."
+      );
+
+      if (transferId) {
+        airtimeTransaction.flutterwaveTransferId =
+          String(transferId);
+      }
+
+      airtimeTransaction.flutterwaveTransferStatus =
+        transferStatus;
+
+      if (
+        transferStatus ===
+        "SUCCESSFUL"
+      ) {
+        airtimeTransaction.status =
+          "SUCCESSFUL";
+
+        airtimeTransaction.completedAt =
+          airtimeTransaction.completedAt ||
+          new Date();
+
+        console.log(
+          "✅ ETrend airtime settlement was successfully completed."
+        );
+
+      } else if (
+        transferStatus ===
+        "FAILED"
+      ) {
+        airtimeTransaction.status =
+          "SETTLEMENT_FAILED";
+
+        console.error(
+          "❌ ETrend airtime settlement failed."
+        );
+
+      } else {
+        airtimeTransaction.status =
+          "SETTLEMENT_PROCESSING";
+
+        console.log(
+          "⏳ ETrend airtime settlement is still processing."
+        );
+      }
+
+      await airtimeTransaction.save();
+
+      // IMPORTANT:
+      // STOP HERE.
+      //
+      // This webhook belongs to the airtime settlement.
+      // Do not process it as an ETrend withdrawal.
+      return res.sendStatus(200);
+    }
+
 
     // ==========================================================
     // 6. FIND ORIGINAL ETREND TRANSFER

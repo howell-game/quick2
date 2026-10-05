@@ -417,9 +417,84 @@ router.post("/buy", async (req, res) => {
     ------------------------------------------------------
     */
 
+   if (
+  responseCode === "000" &&
+  providerStatus === "delivered"
+) {
+  const merchantId =
+    process.env.FLUTTERWAVE_MERCHANT_ID;
+
+  if (!merchantId) {
+    airtimeTransaction.status =
+      "SETTLEMENT_FAILED";
+
+    airtimeTransaction.providerResponse = {
+      vtpass: vtpassData,
+      settlementError:
+        "FLUTTERWAVE_MERCHANT_ID is not configured."
+    };
+
+    await airtimeTransaction.save();
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Airtime was delivered, but settlement could not be configured.",
+      reference,
+      requestId,
+      status: "SETTLEMENT_FAILED"
+    });
+  }
+
+  const flutterwaveTransferReference =
+    `ETREND_AIRTIME_SETTLE_${userId}_${Date.now()}`;
+
+  try {
+    const transferResponse =
+      await axios.post(
+        "https://api.flutterwave.com/v3/transfers",
+        {
+          account_bank: "flutterwave",
+          account_number: String(merchantId),
+          amount: airtimeAmount,
+          currency: "NGN",
+          debit_currency: "NGN",
+          debit_subaccount:
+            account.flutterwaveAccountReference,
+          reference:
+            flutterwaveTransferReference,
+          narration:
+            "ETrend Airtime Purchase Settlement",
+          callback_url:
+            "https://trendgame-backend.onrender.com/api/etrend-account/webhook"
+        },
+        {
+          headers: {
+            Authorization:
+              `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+            "Content-Type": "application/json"
+          },
+          timeout: 30000
+        }
+      );
+
+    const transferData =
+      transferResponse.data?.data;
+
+    airtimeTransaction.flutterwaveTransferId =
+      transferData?.id
+        ? String(transferData.id)
+        : null;
+
+    airtimeTransaction.flutterwaveTransferReference =
+      flutterwaveTransferReference;
+
+    airtimeTransaction.flutterwaveTransferStatus =
+      transferData?.status || "NEW";
+
     if (
-      responseCode === "000" &&
-      providerStatus === "delivered"
+      transferData?.status ===
+      "SUCCESSFUL"
     ) {
       airtimeTransaction.status =
         "SUCCESSFUL";
@@ -447,6 +522,61 @@ router.post("/buy", async (req, res) => {
         }
       });
     }
+
+    airtimeTransaction.status =
+      "SETTLEMENT_PROCESSING";
+
+    await airtimeTransaction.save();
+
+    return res.status(202).json({
+      success: true,
+      message:
+        "Airtime was delivered. Payment settlement is being completed.",
+      reference,
+      requestId,
+      status:
+        "SETTLEMENT_PROCESSING"
+    });
+
+  } catch (settlementError) {
+    console.error(
+      "❌ Airtime settlement transfer failed:"
+    );
+
+    console.error(
+      settlementError.response?.data ||
+      settlementError.message
+    );
+
+    airtimeTransaction.status =
+      "SETTLEMENT_FAILED";
+
+    airtimeTransaction.flutterwaveTransferReference =
+      flutterwaveTransferReference;
+
+    airtimeTransaction.flutterwaveTransferStatus =
+      "FAILED";
+
+    airtimeTransaction.providerResponse = {
+      vtpass: vtpassData,
+      settlementError:
+        settlementError.response?.data ||
+        settlementError.message
+    };
+
+    await airtimeTransaction.save();
+
+    return res.status(502).json({
+      success: false,
+      message:
+        "Airtime was delivered, but payment settlement failed.",
+      reference,
+      requestId,
+      status:
+        "SETTLEMENT_FAILED"
+    });
+  }
+}
 
 
     /*
