@@ -1,6 +1,5 @@
 const axios = require("axios");
-
-const VTPASS_BASE_URL = "https://sandbox.vtpass.com/api";
+const VTPASS_BASE_URL = process.env.VTPASS_BASE_URL || "https://sandbox.vtpass.com/api";
 
 const generateRequestId = () => {
   const now = new Date();
