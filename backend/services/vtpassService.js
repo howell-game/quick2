@@ -486,6 +486,183 @@ const buyTV = async ({
   }
 };
 
+const verifyElectricityMeter = async ({
+  serviceID,
+  billersCode,
+  type
+}) => {
+  if (!serviceID) {
+    throw new Error(
+      "VTpass electricity service ID is required."
+    );
+  }
+
+  if (!billersCode) {
+    throw new Error(
+      "Electricity meter number is required."
+    );
+  }
+
+  if (
+    type !== "prepaid" &&
+    type !== "postpaid"
+  ) {
+    throw new Error(
+      "Electricity meter type must be prepaid or postpaid."
+    );
+  }
+
+  try {
+    const response = await axios.post(
+      `${VTPASS_BASE_URL}/merchant-verify`,
+      {
+        serviceID,
+        billersCode: String(billersCode),
+        type
+      },
+      {
+        headers: {
+          "api-key":
+            process.env.VTPASS_API_KEY,
+          "secret-key":
+            process.env.VTPASS_SECRET_KEY,
+          "Content-Type":
+            "application/json"
+        },
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      data: response.data
+    };
+  } catch (error) {
+    console.error(
+      "❌ VTpass electricity meter verification failed:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
+    );
+
+    return {
+      success: false,
+      data:
+        error.response?.data ||
+        null,
+      error: error.message
+    };
+  }
+};
+
+
+const buyElectricity = async ({
+  serviceID,
+  billersCode,
+  variationCode,
+  amount,
+  phone,
+  requestId
+}) => {
+  if (!serviceID) {
+    throw new Error(
+      "VTpass electricity service ID is required."
+    );
+  }
+
+  if (!billersCode) {
+    throw new Error(
+      "Electricity meter number is required."
+    );
+  }
+
+  if (!variationCode) {
+    throw new Error(
+      "Electricity meter type is required."
+    );
+  }
+
+  if (!amount || Number(amount) <= 0) {
+    throw new Error(
+      "A valid electricity amount is required."
+    );
+  }
+
+  if (!phone) {
+    throw new Error(
+      "Customer phone number is required."
+    );
+  }
+
+  const finalRequestId =
+    requestId || generateRequestId();
+
+  try {
+    const response = await axios.post(
+      `${VTPASS_BASE_URL}/pay`,
+      {
+        request_id:
+          finalRequestId,
+
+        serviceID,
+
+        billersCode:
+          String(billersCode),
+
+        variation_code:
+          variationCode,
+
+        amount:
+          Number(amount),
+
+        phone:
+          String(phone)
+      },
+      {
+        headers: {
+          "api-key":
+            process.env.VTPASS_API_KEY,
+          "secret-key":
+            process.env.VTPASS_SECRET_KEY,
+          "Content-Type":
+            "application/json"
+        },
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      requestId:
+        finalRequestId,
+      data:
+        response.data
+    };
+  } catch (error) {
+    console.error(
+      "❌ VTpass electricity purchase failed:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
+    );
+
+    return {
+      success: false,
+      requestId:
+        finalRequestId,
+      data:
+        error.response?.data ||
+        null,
+      error:
+        error.message
+    };
+  }
+};
+
 module.exports = {
   buyAirtime,
   getDataPackages,
@@ -493,6 +670,8 @@ module.exports = {
   getTVPackages,
   verifyTVSmartcard,
   buyTV,
+  verifyElectricityMeter,
+  buyElectricity,
   requeryTransaction,
   generateRequestId
 };

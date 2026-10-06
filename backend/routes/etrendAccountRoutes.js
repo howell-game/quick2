@@ -9,6 +9,7 @@ const ETrendTransfer = require("../models/ETrendTransfer");
 const ETrendDataTransaction =require("../models/ETrendDataTransaction");
 const ETrendAirtimeTransaction = require("../models/ETrendAirtimeTransaction");
 const ETrendTVTransaction = require("../models/ETrendTVTransaction");
+const ETrendElectricityTransaction = require("../models/ETrendElectricityTransaction");
 
 
 // ==========================================
@@ -1558,6 +1559,76 @@ if (tvTransaction) {
   }
 
   await tvTransaction.save();
+
+  return res.sendStatus(200);
+}
+
+
+// ==========================================================
+// CHECK IF THIS IS AN ETREND ELECTRICITY SETTLEMENT
+// ==========================================================
+
+const electricityTransaction =
+  await ETrendElectricityTransaction.findOne({
+    where: {
+      flutterwaveTransferReference:
+        reference
+    }
+  });
+
+if (electricityTransaction) {
+
+  console.log(
+    "✅ This webhook belongs to an ETrend ELECTRICITY settlement."
+  );
+
+  if (transferId) {
+    electricityTransaction.flutterwaveTransferId =
+      String(transferId);
+  }
+
+  electricityTransaction.flutterwaveTransferStatus =
+    transferStatus;
+
+  if (
+    transferStatus ===
+    "SUCCESSFUL"
+  ) {
+
+    electricityTransaction.status =
+      "SUCCESSFUL";
+
+    electricityTransaction.completedAt =
+      electricityTransaction.completedAt ||
+      new Date();
+
+    console.log(
+      "✅ ETrend electricity settlement successfully completed."
+    );
+
+  } else if (
+    transferStatus ===
+    "FAILED"
+  ) {
+
+    electricityTransaction.status =
+      "SETTLEMENT_FAILED";
+
+    console.error(
+      "❌ ETrend electricity settlement failed."
+    );
+
+  } else {
+
+    electricityTransaction.status =
+      "SETTLEMENT_PROCESSING";
+
+    console.log(
+      "⏳ ETrend electricity settlement is still processing."
+    );
+  }
+
+  await electricityTransaction.save();
 
   return res.sendStatus(200);
 }
