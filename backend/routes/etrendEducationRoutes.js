@@ -58,6 +58,10 @@ const getEtrendBalance = async (
     await axios.get(
       `${FLUTTERWAVE_URL}/payout-subaccounts/${accountReference}/balances`,
       {
+        params: {
+          currency: "NGN",
+        },
+
         headers: {
           Authorization:
             `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
@@ -68,22 +72,58 @@ const getEtrendBalance = async (
       }
     );
 
-  const balances =
-    response.data?.data || [];
 
-  const ngnBalance =
-    balances.find(
-      balance =>
-        String(
-          balance.currency
-        ).toUpperCase() === "NGN"
+  const balanceData =
+    response.data?.data;
+
+
+  /*
+   * Flutterwave may return the balance
+   * as an object or as an array.
+   */
+
+  let ngnBalance = null;
+
+
+  if (Array.isArray(balanceData)) {
+
+    ngnBalance =
+      balanceData.find(
+        balance =>
+          String(
+            balance?.currency || ""
+          ).toUpperCase() === "NGN"
+      );
+
+  } else if (
+    balanceData &&
+    typeof balanceData === "object"
+  ) {
+
+    ngnBalance =
+      balanceData;
+
+  }
+
+
+  const availableBalance =
+    Number(
+      ngnBalance?.available_balance ??
+      ngnBalance?.balance ??
+      0
     );
 
-  return Number(
-    ngnBalance?.available_balance ||
-    ngnBalance?.balance ||
-    0
-  );
+
+  if (!Number.isFinite(availableBalance)) {
+
+    throw new Error(
+      "Unable to determine ETrend Flutterwave balance."
+    );
+
+  }
+
+
+  return availableBalance;
 };
 
 
