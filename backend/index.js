@@ -13,6 +13,7 @@ const sequelize = require("./db");  // Import your Sequelize instance
 
 const { startAllCycles } = require("./utils/timeframeCycles");
 const etrendEducationRoutes = require("./routes/etrendEducationRoutes");
+const schemeOfWorkRoutes = require("./routes/schemeOfWorkRoutes");
 const etrendDataRoutes =require("./routes/etrendDataRoutes");
 const etrendElectricityRoutes = require("./routes/etrendElectricityRoutes");
 const Admin = require("./models/Admin");
@@ -81,6 +82,7 @@ app.use("/api/users", balanceRoutes);
 app.use("/api/etrend-account", etrendAccountRoutes);
 app.use("/api/etrend-education",etrendEducationRoutes);
 app.use("/api/etrend-airtime", etrendAirtimeRoutes);
+app.use("/api/schemes-of-work", schemeOfWorkRoutes);
 app.use("/api/etrend-tv",etrendTVRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/etrend-data", etrendDataRoutes);

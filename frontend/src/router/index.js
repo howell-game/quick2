@@ -1,10 +1,15 @@
 import store from '../store'; 
 import { createRouter, createWebHashHistory } from "vue-router";
+import EtrendTransaction from "@/components/EtrendTransaction.vue";
 import InvestmentPage from "../components/InvestmentPage.vue";  // Fix: use relative path
-import Signup from "../components/Signup.vue";                    // Fix: use relative path
+import Signup from "../components/Signup.vue"; 
+import Education from "../components/Education.vue"; 
+import AddScheme from "../components/AddScheme.vue";               // Fix: use relative path
 import Terms from '@/components/Terms.vue';
+import EtrendSendTo from "@/components/EtrendSendTo.vue";
 import Chat from '@/components/Chat.vue';
 import AboutPage from "../components/AboutPage.vue";   
+import FundAccount from "@/components/FundAccount.vue";
 import Login from "../components/Login.vue";                      // Fix: use relative path
 import SummaryPage from "../components/SummaryPage.vue";          // Fix: use relative path
 import ProfilePage from "../components/ProfilePage.vue";          // Fix: use relative path
@@ -25,19 +30,26 @@ import ResetPassword from '@/components/ResetPassword.vue';
 import AdminPage from '@/components/AdminPage.vue';
 import AdminChat from '@/components/AdminChat.vue';
 import AdminLogin from "../components/AdminLogin.vue";
+import Services from "../components/Services.vue";
+import CreateAccount from "../components/CreateAccount.vue";
+import SchemeOfWork from "../components/SchemeOfWork.vue";
+import Teacher from "../components/Teacher.vue";
 // Define the routes
 const routes = [
   { path: "/forgot-password", component: ForgotPassword },  
   { path: "/reset-password/:token", component: ResetPassword },
   { path: "/verify", component: VerifyLog },
+  {path: "/scheme-of-work",name: "SchemeOfWork",component: SchemeOfWork},
   {path: "/adminlogin", component: AdminLogin},
+  {path: "/add-scheme", name: "AddScheme",component: AddScheme},
   { path: "/about", component: AboutPage },
   { path: "/advice", component: InvestmentAdvice },
+  {path: "/teacher",name: "Teacher",component: Teacher},
   { path: "/chat", component: Chat },
-
+  {path: "/education",name: "Education",component: Education},
   { path: "/terms", component: Terms},
-  { path: "/", component: InvestmentPage },
-  { path: "/signup", component: Signup },
+  { path: "/investment", component: InvestmentPage },
+  { path: "/", component: Signup },
   { path: "/login", component: Login },
   { path: "/summary", component: SummaryPage },
   { path: "/timeframe", component: Timeframe },
@@ -47,22 +59,32 @@ const routes = [
   { path: '/payment-success', component: PaymentSuccess }, // Add this route
   { path: '/transaction/:userId', component: TransactionPage },
   { path: "/summary", name: "SummaryPage", component: SummaryPage },
-
+  { path: "/services", component: Services },
+  { path: "/create-account", component: CreateAccount },
+  {path: "/fund-account", component: FundAccount},
+  {path: "/etrend-send-to",component: EtrendSendTo},
+  {path: "/etrend-transactions", component: EtrendTransaction},
   { path: '/profile/:userId', component: ProfilePage },
   {
   path: "/adminchat",
   name: "AdminChat",
   component: AdminChat,
+
   beforeEnter: () => {
 
-    const adminToken = localStorage.getItem("adminToken");
+    const adminLoggedIn =
+      localStorage.getItem("adminLoggedIn");
 
-    if (!adminToken) {
+    if (adminLoggedIn !== "true") {
+
       return "/adminlogin";
+
     }
 
     return true;
-  }
+
+  },
+
 },
  
   { path: '/verify/:userId', name: 'Verify', component: () => import('../views/Verify.vue') },
