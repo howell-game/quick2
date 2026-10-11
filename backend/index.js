@@ -10,7 +10,7 @@ const bodyParser = require("body-parser");
 
 // Import Sequelize setup
 const sequelize = require("./db");  // Import your Sequelize instance
-
+require("./models/lessonNoteAssociations");
 const { startAllCycles } = require("./utils/timeframeCycles");
 const etrendEducationRoutes = require("./routes/etrendEducationRoutes");
 const schemeOfWorkRoutes = require("./routes/schemeOfWorkRoutes");
@@ -29,6 +29,7 @@ const chatRoutes = require("./routes/chatRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const etrendAccountRoutes = require("./routes/etrendAccountRoutes");
 const etrendAirtimeRoutes = require("./routes/etrendAirtimeRoutes");
+const lessonNoteRoutes = require("./routes/lessonNoteRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -78,6 +79,7 @@ app.use("/api/transactions", transactionRoutes);
 app.use("/api/balance", balanceRoutes);
 app.use("/api/outcomes", outcomeRoutes);
 app.use("/api/etrend-electricity", etrendElectricityRoutes);
+app.use("/api/lesson-notes", lessonNoteRoutes);
 app.use("/api/users", balanceRoutes);
 app.use("/api/etrend-account", etrendAccountRoutes);
 app.use("/api/etrend-education",etrendEducationRoutes);

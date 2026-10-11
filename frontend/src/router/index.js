@@ -4,9 +4,11 @@ import EtrendTransaction from "@/components/EtrendTransaction.vue";
 import InvestmentPage from "../components/InvestmentPage.vue";  // Fix: use relative path
 import Signup from "../components/Signup.vue"; 
 import Education from "../components/Education.vue"; 
-import AddScheme from "../components/AddScheme.vue";               // Fix: use relative path
+import AddScheme from "../components/AddScheme.vue";     
+import AddLessonNotes from "../components/AddLessonNotes.vue";          // Fix: use relative path
 import Terms from '@/components/Terms.vue';
 import EtrendSendTo from "@/components/EtrendSendTo.vue";
+import LessonNotes from "../components/LessonNotes.vue";
 import Chat from '@/components/Chat.vue';
 import AboutPage from "../components/AboutPage.vue";   
 import FundAccount from "@/components/FundAccount.vue";
@@ -49,6 +51,8 @@ const routes = [
   {path: "/education",name: "Education",component: Education},
   { path: "/terms", component: Terms},
   { path: "/investment", component: InvestmentPage },
+  {path: "/lesson-notes",component: LessonNotes},
+  {path: "/add-lesson-notes", name: "AddLessonNotes", component: AddLessonNotes},
   { path: "/", component: Signup },
   { path: "/login", component: Login },
   { path: "/summary", component: SummaryPage },
