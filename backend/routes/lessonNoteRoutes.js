@@ -1,10 +1,9 @@
 
 const express = require("express");
-const { Op } = require("sequelize");
 const sequelize = require("../db");
 const {
   LessonNote,
-  LessonNotePeriod
+  LessonNotePeriod,
 } = require("../models/lessonNoteAssociations");
 
 const router = express.Router();
@@ -12,8 +11,12 @@ const router = express.Router();
 const validTerms = [
   "First Term",
   "Second Term",
-  "Third Term"
+  "Third Term",
 ];
+
+function textValue(value) {
+  return value == null ? "" : String(value).trim();
+}
 
 function validateLesson(body) {
   const requiredFields = [
@@ -22,15 +25,11 @@ function validateLesson(body) {
     "className",
     "subject",
     "weekNumber",
-    "topic"
+    "topic",
   ];
 
   for (const field of requiredFields) {
-    if (
-      body[field] === undefined ||
-      body[field] === null ||
-      String(body[field]).trim() === ""
-    ) {
+    if (textValue(body[field]) === "") {
       return `${field} is required.`;
     }
   }
@@ -46,50 +45,75 @@ function validateLesson(body) {
     weekNumber < 1 ||
     weekNumber > 60
   ) {
-    return "Week number must be between 1 and 60.";
+    return "Week number must be a whole number between 1 and 60.";
   }
 
-  if (!Array.isArray(body.objectives)) {
-    return "Objectives must be an array.";
+  // General Lesson Content arrays must be supplied.
+  const requiredArrays = [
+    ["objectives", "Objectives"],
+    ["content", "Lesson content"],
+    ["activities", "Activities"],
+    ["evaluation", "Evaluation"],
+  ];
+
+  for (const [field, label] of requiredArrays) {
+    if (
+      !Array.isArray(body[field]) ||
+      body[field].filter((item) => textValue(item) !== "").length === 0
+    ) {
+      return `${label} must contain at least one item.`;
+    }
   }
 
-  if (!Array.isArray(body.content)) {
-    return "Lesson content must be an array.";
+  // These General Lesson Content fields are mandatory.
+  if (!textValue(body.materials)) {
+    return "Instructional materials are required.";
   }
 
-  if (!Array.isArray(body.activities)) {
-    return "Activities must be an array.";
+  if (!textValue(body.previousKnowledge)) {
+    return "Previous knowledge is required.";
   }
 
-  if (!Array.isArray(body.evaluation)) {
-    return "Evaluation must be an array.";
+  if (!textValue(body.assignment)) {
+    return "Assignment is required.";
   }
 
+  // Exactly four period records are retained, but their fields are optional.
   if (!Array.isArray(body.periods) || body.periods.length !== 4) {
     return "Exactly four lesson periods are required.";
   }
 
-  const periodNumbers = body.periods.map(
-    period => Number(period.periodNumber)
+  const periodNumbers = body.periods.map((period) =>
+    Number(period.periodNumber)
   );
 
   if (
-    periodNumbers.some(number => !Number.isInteger(number)) ||
-    [...periodNumbers].sort().join(",") !== "1,2,3,4"
+    periodNumbers.some((number) => !Number.isInteger(number)) ||
+    [...periodNumbers].sort((a, b) => a - b).join(",") !== "1,2,3,4"
   ) {
     return "Periods 1, 2, 3 and 4 must each appear exactly once.";
   }
 
   for (const period of body.periods) {
-    if (!String(period.title || "").trim()) {
-      return `Period ${period.periodNumber} requires a title.`;
+    const duration = period.duration;
+
+    // An empty duration is allowed. A supplied duration must be valid.
+    if (
+      duration !== null &&
+      duration !== undefined &&
+      duration !== "" &&
+      (!Number.isInteger(Number(duration)) ||
+        Number(duration) < 1 ||
+        Number(duration) > 300)
+    ) {
+      return `Period ${period.periodNumber} duration must be a whole number between 1 and 300.`;
     }
 
-    if (!String(period.lessonContent || "").trim()) {
-      return `Period ${period.periodNumber} requires lesson content.`;
-    }
-
-    if (!Array.isArray(period.speedWork)) {
+    // Empty titles, activities, lesson content and speed work are allowed.
+    if (
+      period.speedWork !== undefined &&
+      !Array.isArray(period.speedWork)
+    ) {
       return `Period ${period.periodNumber} speed work must be an array.`;
     }
   }
@@ -98,17 +122,65 @@ function validateLesson(body) {
 }
 
 function buildPeriod(period, lessonNoteId) {
+  const duration =
+    period.duration === null ||
+    period.duration === undefined ||
+    period.duration === ""
+      ? null
+      : Number(period.duration);
+
   return {
     lessonNoteId,
     periodNumber: Number(period.periodNumber),
-    title: period.title.trim(),
-    duration: Number(period.duration || 40),
-    teacherActivities: period.teacherActivities || "",
-    studentActivities: period.studentActivities || "",
-    lessonContent: period.lessonContent,
-    speedWork: period.speedWork,
-    conclusion: period.conclusion || ""
+    title: textValue(period.title),
+    duration,
+    teacherActivities: textValue(period.teacherActivities),
+    studentActivities: textValue(period.studentActivities),
+    lessonContent: textValue(period.lessonContent),
+    speedWork: Array.isArray(period.speedWork)
+      ? period.speedWork
+          .map((item) => textValue(item))
+          .filter(Boolean)
+      : [],
+    conclusion: textValue(period.conclusion),
   };
+}
+
+function buildLessonNotePayload(body) {
+  return {
+    academicSession: textValue(body.academicSession),
+    term: body.term,
+    className: textValue(body.className),
+    subject: textValue(body.subject),
+    weekNumber: Number(body.weekNumber),
+    topic: textValue(body.topic),
+    objectives: body.objectives.map((item) => textValue(item)).filter(Boolean),
+    materials: textValue(body.materials),
+    previousKnowledge: textValue(body.previousKnowledge),
+    content: body.content.map((item) => textValue(item)).filter(Boolean),
+    activities: body.activities.map((item) => textValue(item)).filter(Boolean),
+    evaluation: body.evaluation.map((item) => textValue(item)).filter(Boolean),
+    assignment: textValue(body.assignment),
+  };
+}
+
+async function findLessonWithPeriods(id, options = {}) {
+  return LessonNote.findByPk(id, {
+    ...options,
+    include: [
+      {
+        model: LessonNotePeriod,
+        as: "periods",
+      },
+    ],
+    order: [
+      [
+        { model: LessonNotePeriod, as: "periods" },
+        "periodNumber",
+        "ASC",
+      ],
+    ],
+  });
 }
 
 // GET all matching weekly lesson notes.
@@ -118,7 +190,7 @@ router.get("/", async (req, res) => {
       academicSession,
       term,
       className,
-      subject
+      subject,
     } = req.query;
 
     const where = {};
@@ -137,123 +209,101 @@ router.get("/", async (req, res) => {
         "className",
         "subject",
         "weekNumber",
-        "topic"
+        "topic",
       ],
-      order: [["weekNumber", "ASC"]]
+      order: [["weekNumber", "ASC"]],
     });
 
     return res.json({
       success: true,
-      lessonNotes: notes
+      lessonNotes: notes,
     });
   } catch (error) {
     console.error("Fetch lesson notes error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to fetch lesson notes."
+      message: "Unable to fetch lesson notes.",
     });
   }
 });
 
-// GET one weekly lesson note with all four periods.
+// GET one lesson note with all four periods.
 router.get("/:id", async (req, res) => {
   try {
-    const note = await LessonNote.findByPk(req.params.id, {
-      include: [
-        {
-          model: LessonNotePeriod,
-          as: "periods"
-        }
-      ],
-      order: [[{ model: LessonNotePeriod, as: "periods" }, "periodNumber", "ASC"]]
-    });
+    const note = await findLessonWithPeriods(req.params.id);
 
     if (!note) {
       return res.status(404).json({
         success: false,
-        message: "Lesson note not found."
+        message: "Lesson note not found.",
       });
     }
 
     return res.json({
       success: true,
-      lessonNote: note
+      lessonNote: note,
     });
   } catch (error) {
     console.error("Fetch lesson note error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to fetch this lesson note."
+      message: "Unable to fetch this lesson note.",
     });
   }
 });
 
-// CREATE a weekly lesson note and its four periods.
+// CREATE a lesson note and its four period records.
 router.post("/", async (req, res) => {
   const validationError = validateLesson(req.body);
 
   if (validationError) {
     return res.status(400).json({
       success: false,
-      message: validationError
+      message: validationError,
     });
   }
 
-  const transaction = await sequelize.transaction();
+  let transaction;
 
   try {
+    transaction = await sequelize.transaction();
+
     const note = await LessonNote.create(
-      {
-        academicSession: req.body.academicSession.trim(),
-        term: req.body.term,
-        className: req.body.className.trim(),
-        subject: req.body.subject.trim(),
-        weekNumber: Number(req.body.weekNumber),
-        topic: req.body.topic.trim(),
-        objectives: req.body.objectives,
-        materials: req.body.materials || "",
-        previousKnowledge: req.body.previousKnowledge || "",
-        content: req.body.content,
-        activities: req.body.activities,
-        evaluation: req.body.evaluation,
-        assignment: req.body.assignment || ""
-      },
+      buildLessonNotePayload(req.body),
       { transaction }
     );
 
     await LessonNotePeriod.bulkCreate(
-      req.body.periods.map(period =>
-        buildPeriod(period, note.id)
-      ),
+      req.body.periods.map((period) => buildPeriod(period, note.id)),
       { transaction }
     );
 
     await transaction.commit();
+    transaction = null;
 
-    const savedNote = await LessonNote.findByPk(note.id, {
-      include: [
-        {
-          model: LessonNotePeriod,
-          as: "periods"
-        }
-      ],
-      order: [[{ model: LessonNotePeriod, as: "periods" }, "periodNumber", "ASC"]]
-    });
+    const savedNote = await findLessonWithPeriods(note.id);
 
     return res.status(201).json({
       success: true,
       message: "Lesson note created successfully.",
-      lessonNote: savedNote
+      lessonNote: savedNote,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Create lesson note rollback error:", rollbackError);
+      }
+    }
 
     if (error.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({
         success: false,
-        message: "A lesson note already exists for this session, term, class, subject and week."
+        message:
+          "A lesson note already exists for this session, term, class, subject and week.",
       });
     }
 
@@ -261,93 +311,79 @@ router.post("/", async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Unable to save the lesson note."
+      message: "Unable to save the lesson note.",
     });
   }
 });
 
-// UPDATE an existing weekly lesson note and replace its four periods.
+// UPDATE an existing lesson note and replace its four period records.
 router.put("/:id", async (req, res) => {
   const validationError = validateLesson(req.body);
 
   if (validationError) {
     return res.status(400).json({
       success: false,
-      message: validationError
+      message: validationError,
     });
   }
 
-  const transaction = await sequelize.transaction();
+  let transaction;
 
   try {
+    transaction = await sequelize.transaction();
+
     const note = await LessonNote.findByPk(req.params.id, {
-      transaction
+      transaction,
     });
 
     if (!note) {
       await transaction.rollback();
+      transaction = null;
 
       return res.status(404).json({
         success: false,
-        message: "Lesson note not found."
+        message: "Lesson note not found.",
       });
     }
 
-    await note.update(
-      {
-        academicSession: req.body.academicSession.trim(),
-        term: req.body.term,
-        className: req.body.className.trim(),
-        subject: req.body.subject.trim(),
-        weekNumber: Number(req.body.weekNumber),
-        topic: req.body.topic.trim(),
-        objectives: req.body.objectives,
-        materials: req.body.materials || "",
-        previousKnowledge: req.body.previousKnowledge || "",
-        content: req.body.content,
-        activities: req.body.activities,
-        evaluation: req.body.evaluation,
-        assignment: req.body.assignment || ""
-      },
-      { transaction }
-    );
+    await note.update(buildLessonNotePayload(req.body), {
+      transaction,
+    });
 
     await LessonNotePeriod.destroy({
       where: { lessonNoteId: note.id },
-      transaction
+      transaction,
     });
 
     await LessonNotePeriod.bulkCreate(
-      req.body.periods.map(period =>
-        buildPeriod(period, note.id)
-      ),
+      req.body.periods.map((period) => buildPeriod(period, note.id)),
       { transaction }
     );
 
     await transaction.commit();
+    transaction = null;
 
-    const savedNote = await LessonNote.findByPk(note.id, {
-      include: [
-        {
-          model: LessonNotePeriod,
-          as: "periods"
-        }
-      ],
-      order: [[{ model: LessonNotePeriod, as: "periods" }, "periodNumber", "ASC"]]
-    });
+    const savedNote = await findLessonWithPeriods(note.id);
 
     return res.json({
       success: true,
       message: "Lesson note updated successfully.",
-      lessonNote: savedNote
+      lessonNote: savedNote,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Update lesson note rollback error:", rollbackError);
+      }
+    }
 
     if (error.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({
         success: false,
-        message: "Another lesson note already uses this session, term, class, subject and week."
+        message:
+          "Another lesson note already uses this session, term, class, subject and week.",
       });
     }
 
@@ -355,7 +391,7 @@ router.put("/:id", async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Unable to update the lesson note."
+      message: "Unable to update the lesson note.",
     });
   }
 });

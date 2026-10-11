@@ -34,42 +34,48 @@ const LessonNotePeriod = sequelize.define(
 
     title: {
       type: DataTypes.STRING(255),
-      allowNull: false
+      allowNull: true,
+      defaultValue: ""
     },
 
     duration: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 40
+      allowNull: true,
+      defaultValue: 40,
+      validate: {
+        min: 1,
+        max: 300,
+        isInt: true
+      }
     },
 
     teacherActivities: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: true,
       defaultValue: ""
     },
 
     studentActivities: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: true,
       defaultValue: ""
     },
 
     lessonContent: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: true,
       defaultValue: ""
     },
 
     speedWork: {
       type: DataTypes.JSONB,
-      allowNull: false,
+      allowNull: true,
       defaultValue: []
     },
 
     conclusion: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: true,
       defaultValue: ""
     }
   },

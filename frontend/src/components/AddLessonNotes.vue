@@ -15,8 +15,8 @@
     <div class="page-intro">
       <h2>{{ isEditing ? "Update Lesson Note" : "Create a New Lesson Note" }}</h2>
       <p>
-        Complete the general lesson information and enter the details for
-        all four teaching periods. Fields marked * are required.
+        Complete Lesson Information and General Lesson Content.
+        Teaching Period fields are optional.
       </p>
     </div>
 
@@ -33,7 +33,7 @@
     </div>
 
     <form v-if="!loadingExisting" @submit.prevent="saveLessonNote">
-      <!-- GENERAL INFORMATION -->
+      <!-- 1. LESSON INFORMATION -->
       <section class="form-card">
         <div class="section-heading">
           <span class="section-number">1</span>
@@ -51,8 +51,8 @@
               v-model.trim="form.academicSession"
               type="text"
               placeholder="e.g. 2026/2027"
-              required
               maxlength="20"
+              required
             />
           </div>
 
@@ -102,10 +102,9 @@
               min="1"
               max="60"
               step="1"
-              placeholder="e.g. 1"
               required
             />
-            <small>Enter a week number from 1 to 60.</small>
+            <small>Enter a whole number from 1 to 60.</small>
           </div>
 
           <div class="form-field full-width">
@@ -122,15 +121,13 @@
         </div>
       </section>
 
-      <!-- GENERAL LESSON CONTENT -->
+      <!-- 2. GENERAL LESSON CONTENT -->
       <section class="form-card">
         <div class="section-heading">
           <span class="section-number">2</span>
           <div>
             <h2>General Lesson Content</h2>
-            <p>
-              Enter one item per line in fields that accept multiple items.
-            </p>
+            <p>These fields are required. Enter one item per line where appropriate.</p>
           </div>
         </div>
 
@@ -143,7 +140,7 @@
             placeholder="Identify the place value of a digit&#10;Write numbers in expanded form&#10;Compare whole numbers"
             required
           ></textarea>
-          <small>Enter at least one objective, with each objective on a new line.</small>
+          <small>Enter at least one objective.</small>
         </div>
 
         <div class="form-field">
@@ -174,10 +171,10 @@
             id="content"
             v-model="form.contentText"
             rows="5"
-            placeholder="Enter the first key point&#10;Enter the second key point&#10;Enter the third key point"
+            placeholder="Enter the first key point&#10;Enter the second key point"
             required
           ></textarea>
-          <small>Enter each key point on a new line.</small>
+          <small>Enter at least one key point.</small>
         </div>
 
         <div class="form-field">
@@ -189,7 +186,7 @@
             placeholder="Teacher introduces the topic&#10;Teacher demonstrates examples&#10;Students practise the examples"
             required
           ></textarea>
-          <small>Enter each activity on a new line.</small>
+          <small>Enter at least one activity.</small>
         </div>
 
         <div class="form-field">
@@ -201,7 +198,7 @@
             placeholder="What is place value?&#10;Write 3,426 in expanded form."
             required
           ></textarea>
-          <small>Enter each question on a new line.</small>
+          <small>Enter at least one evaluation question.</small>
         </div>
 
         <div class="form-field">
@@ -216,15 +213,15 @@
         </div>
       </section>
 
-      <!-- FOUR PERIODS -->
+      <!-- 3. OPTIONAL TEACHING PERIODS -->
       <section class="form-card">
         <div class="section-heading">
           <span class="section-number">3</span>
           <div>
             <h2>Teaching Periods</h2>
             <p>
-              Complete all four periods. Each period is saved as a separate
-              record linked to this lesson note.
+              All fields in this section are optional. You may save the lesson
+              with some or all period fields left blank.
             </p>
           </div>
         </div>
@@ -236,97 +233,89 @@
         >
           <div class="period-heading">
             <div>
-              <span class="period-label">
-                PERIOD {{ period.periodNumber }}
-              </span>
+              <span class="period-label">PERIOD {{ period.periodNumber }}</span>
               <h3>Period {{ period.periodNumber }} Details</h3>
             </div>
-            <span class="duration-badge">{{ period.duration }} minutes</span>
+            <span class="duration-badge">
+              {{ period.duration || "—" }}{{ period.duration ? " minutes" : "" }}
+            </span>
           </div>
 
           <div class="form-grid">
             <div class="form-field full-width">
               <label :for="'period-title-' + period.periodNumber">
-                Period Title *
+                Period Title
               </label>
               <input
                 :id="'period-title-' + period.periodNumber"
                 v-model.trim="period.title"
                 type="text"
                 maxlength="255"
-                :placeholder="'Enter the title for Period ' + period.periodNumber"
-                required
+                :placeholder="'Optional title for Period ' + period.periodNumber"
               />
             </div>
 
             <div class="form-field">
               <label :for="'duration-' + period.periodNumber">
-                Duration (minutes) *
+                Duration (minutes)
               </label>
               <input
                 :id="'duration-' + period.periodNumber"
-                v-model.number="period.duration"
+                v-model="period.duration"
                 type="number"
                 min="1"
                 max="300"
                 step="1"
-                required
+                placeholder="Optional"
               />
             </div>
 
             <div class="form-field full-width">
               <label :for="'teacher-' + period.periodNumber">
-                Teacher's Activities *
+                Teacher's Activities
               </label>
               <textarea
                 :id="'teacher-' + period.periodNumber"
                 v-model.trim="period.teacherActivities"
                 rows="3"
-                placeholder="Describe what the teacher will do."
-                required
+                placeholder="Optional: describe what the teacher will do."
               ></textarea>
             </div>
 
             <div class="form-field full-width">
               <label :for="'students-' + period.periodNumber">
-                Students' Activities *
+                Students' Activities
               </label>
               <textarea
                 :id="'students-' + period.periodNumber"
                 v-model.trim="period.studentActivities"
                 rows="3"
-                placeholder="Describe what the students will do."
-                required
+                placeholder="Optional: describe what the students will do."
               ></textarea>
             </div>
 
             <div class="form-field full-width">
               <label :for="'lesson-' + period.periodNumber">
-                Lessons / Period Content *
+                Lesson / Period Content
               </label>
               <textarea
                 :id="'lesson-' + period.periodNumber"
                 v-model.trim="period.lessonContent"
                 rows="5"
-                placeholder="Enter the detailed explanation or content taught during this period."
-                required
+                placeholder="Optional: enter the detailed content taught during this period."
               ></textarea>
             </div>
 
             <div class="form-field full-width">
               <label :for="'speedwork-' + period.periodNumber">
-                Speed Work {{ period.periodNumber }} *
+                Speed Work {{ period.periodNumber }}
               </label>
               <textarea
                 :id="'speedwork-' + period.periodNumber"
                 v-model="period.speedWorkText"
                 rows="4"
-                placeholder="Question 1&#10;Question 2&#10;Question 3"
-                required
+                placeholder="Optional: enter one question or exercise per line."
               ></textarea>
-              <small>
-                Enter at least one question or exercise, with each on a new line.
-              </small>
             </div>
 
             <div class="form-field full-width">
@@ -337,14 +326,14 @@
                 :id="'conclusion-' + period.periodNumber"
                 v-model.trim="period.conclusion"
                 rows="3"
-                placeholder="Optional. Enter a conclusion or summary for this period."
+                placeholder="Optional conclusion or summary."
               ></textarea>
             </div>
           </div>
         </article>
       </section>
 
-      <!-- FORM ACTIONS -->
+      <!-- ACTIONS -->
       <div class="form-actions">
         <button
           type="button"
@@ -380,7 +369,7 @@ function createEmptyPeriod(periodNumber) {
   return {
     periodNumber,
     title: "",
-    duration: 40,
+    duration: "",
     teacherActivities: "",
     studentActivities: "",
     lessonContent: "",
@@ -433,7 +422,15 @@ function linesToArray(value) {
 }
 
 function arrayToLines(value) {
-  return Array.isArray(value) ? value.join("\n") : "";
+  if (Array.isArray(value)) {
+    return value.join("\n");
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return "";
 }
 
 export default {
@@ -495,7 +492,7 @@ export default {
 
       if (!baseUrl) {
         throw new Error(
-          "VITE_APP_BASE_URL is missing. Configure your frontend backend URL."
+          "VITE_APP_BASE_URL is missing. Please configure your backend URL."
         );
       }
 
@@ -519,20 +516,30 @@ export default {
         evaluation: linesToArray(this.form.evaluationText),
         assignment: this.form.assignment.trim(),
 
-        periods: this.form.periods.map((period) => ({
-          periodNumber: Number(period.periodNumber),
-          title: period.title.trim(),
-          duration: Number(period.duration),
-          teacherActivities: period.teacherActivities.trim(),
-          studentActivities: period.studentActivities.trim(),
-          lessonContent: period.lessonContent.trim(),
-          speedWork: linesToArray(period.speedWorkText),
-          conclusion: period.conclusion.trim(),
-        })),
+        // Always send four period records.
+        // Their individual fields may be empty.
+        periods: this.form.periods.map((period) => {
+          const duration =
+            period.duration === "" || period.duration == null
+              ? null
+              : Number(period.duration);
+
+          return {
+            periodNumber: Number(period.periodNumber),
+            title: period.title.trim(),
+            duration,
+            teacherActivities: period.teacherActivities.trim(),
+            studentActivities: period.studentActivities.trim(),
+            lessonContent: period.lessonContent.trim(),
+            speedWork: linesToArray(period.speedWorkText),
+            conclusion: period.conclusion.trim(),
+          };
+        }),
       };
     },
 
     validateForm(payload) {
+      // Only Lesson Information is required in this card.
       if (
         !payload.academicSession ||
         !payload.term ||
@@ -540,7 +547,7 @@ export default {
         !payload.subject ||
         !payload.topic
       ) {
-        return "Please complete all required lesson information fields.";
+        return "Please complete all required Lesson Information fields.";
       }
 
       if (
@@ -551,6 +558,7 @@ export default {
         return "Week number must be a whole number between 1 and 60.";
       }
 
+      // Only General Lesson Content is required in this card.
       if (
         payload.objectives.length === 0 ||
         !payload.materials ||
@@ -560,31 +568,29 @@ export default {
         payload.evaluation.length === 0 ||
         !payload.assignment
       ) {
-        return "Please complete all required general lesson content fields.";
+        return "Please complete all required General Lesson Content fields.";
       }
 
-      if (payload.periods.length !== 4) {
-        return "Exactly four periods are required.";
+      // The four periods must exist, but their fields are optional.
+      if (!Array.isArray(payload.periods) || payload.periods.length !== 4) {
+        return "The lesson note must contain four teaching periods.";
       }
 
       for (let index = 0; index < payload.periods.length; index += 1) {
         const period = payload.periods[index];
 
         if (period.periodNumber !== index + 1) {
-          return "The four periods must be numbered from 1 to 4.";
+          return "The four teaching periods must be numbered from 1 to 4.";
         }
 
+        // Check duration only when one has been entered.
         if (
-          !period.title ||
-          !Number.isInteger(period.duration) ||
-          period.duration < 1 ||
-          period.duration > 300 ||
-          !period.teacherActivities ||
-          !period.studentActivities ||
-          !period.lessonContent ||
-          period.speedWork.length === 0
+          period.duration !== null &&
+          (!Number.isInteger(period.duration) ||
+            period.duration < 1 ||
+            period.duration > 300)
         ) {
-          return `Please complete the required fields for Period ${period.periodNumber}.`;
+          return `Duration for Period ${period.periodNumber} must be a whole number from 1 to 300.`;
         }
       }
 
@@ -607,7 +613,6 @@ export default {
 
       try {
         const baseUrl = this.getApiBaseUrl();
-
         let response;
 
         if (this.isEditing) {
@@ -623,13 +628,12 @@ export default {
         }
 
         this.successMessage =
-          response.data.message ||
+          response.data?.message ||
           (this.isEditing
             ? "Lesson note updated successfully."
             : "Lesson note saved successfully.");
 
         if (!this.isEditing) {
-          // Clear the form only after the server confirms a successful save.
           this.form = createEmptyForm();
         }
       } catch (error) {
@@ -649,6 +653,7 @@ export default {
 
       this.loadingExisting = true;
       this.errorMessage = "";
+      this.successMessage = "";
 
       try {
         const baseUrl = this.getApiBaseUrl();
@@ -657,8 +662,7 @@ export default {
           `${baseUrl}/api/lesson-notes/${this.lessonNoteId}`
         );
 
-        const lesson =
-          response.data.lessonNote ?? response.data;
+        const lesson = response.data?.lessonNote ?? response.data;
 
         if (!lesson || lesson.id == null) {
           throw new Error("The requested lesson note was not found.");
@@ -697,7 +701,10 @@ export default {
           return {
             periodNumber,
             title: saved.title ?? "",
-            duration: Number(saved.duration ?? 40),
+            duration:
+              saved.duration === null || saved.duration === undefined
+                ? ""
+                : Number(saved.duration),
             teacherActivities: saved.teacherActivities ?? "",
             studentActivities: saved.studentActivities ?? "",
             lessonContent: saved.lessonContent ?? "",
@@ -708,7 +715,7 @@ export default {
 
         this.form = form;
       } catch (error) {
-        console.error("Failed to load lesson note for editing:", error);
+        console.error("Failed to load lesson note:", error);
 
         this.errorMessage =
           error.response?.data?.message ||
@@ -732,48 +739,55 @@ export default {
   padding: 24px;
   background: #ffffe0;
   color: #111111;
-  box-sizing: border-box;
 }
 
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
-  padding: 20px 24px;
-  margin-bottom: 24px;
-  border-radius: 10px;
-  color: #ffffff;
+  margin: 0 auto 28px;
+  max-width: 1100px;
+  padding: 20px;
   background: #003366;
+  color: #ffffff;
+  border-radius: 10px;
 }
 
 .page-header h1 {
-  margin: 0;
+  margin: 0 0 6px;
   font-size: 25px;
 }
 
 .page-header p {
-  margin: 6px 0 0;
+  margin: 0;
 }
 
 .back-btn,
 .primary-btn,
 .secondary-btn {
+  padding: 11px 18px;
+  border: 0;
   border-radius: 6px;
-  padding: 11px 16px;
-  font: inherit;
-  font-weight: 700;
   cursor: pointer;
+  font-weight: 600;
 }
 
 .back-btn {
-  border: 1px solid #ffffff;
-  color: #003366;
   background: #ffffff;
+  color: #003366;
+}
+
+.page-intro,
+.add-lesson-page form,
+.status-message {
+  max-width: 1100px;
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .page-intro {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .page-intro h2 {
@@ -786,11 +800,13 @@ export default {
 }
 
 .form-card {
-  margin-bottom: 22px;
+  max-width: 1100px;
+  margin: 0 auto 24px;
   padding: 24px;
-  border: 1px solid #e2dfb8;
-  border-radius: 10px;
   background: #ffffff;
+  border: 1px solid #d8dfeb;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 5%);
 }
 
 .section-heading {
@@ -800,29 +816,28 @@ export default {
   margin-bottom: 24px;
 }
 
-.section-heading h2 {
-  margin: 0 0 5px;
-  color: #003366;
-  font-size: 21px;
-}
-
-.section-heading p {
-  margin: 0;
-  color: #666666;
-  line-height: 1.5;
-}
-
 .section-number {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  flex: 0 0 40px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  color: #ffffff;
   background: #003366;
+  color: #ffffff;
   font-weight: 700;
+}
+
+.section-heading h2 {
+  margin: 0 0 5px;
+  color: #003366;
+}
+
+.section-heading p {
+  margin: 0;
+  line-height: 1.5;
+  color: #555555;
 }
 
 .form-grid {
@@ -834,8 +849,8 @@ export default {
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   min-width: 0;
+  gap: 8px;
   margin-bottom: 20px;
 }
 
@@ -848,18 +863,16 @@ export default {
 }
 
 .form-field label {
-  font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .form-field input,
 .form-field select,
 .form-field textarea {
   width: 100%;
-  min-width: 0;
   box-sizing: border-box;
   padding: 12px;
-  border: 1px solid #c8c8c8;
+  border: 1px solid #c5cedb;
   border-radius: 6px;
   background: #ffffff;
   color: #111111;
@@ -868,109 +881,99 @@ export default {
 
 .form-field textarea {
   resize: vertical;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus {
-  outline: 2px solid #8eb9e6;
+  outline: 2px solid #80b8ed;
   border-color: #003366;
 }
 
 .form-field small {
-  color: #666666;
+  color: #555555;
   line-height: 1.5;
 }
 
 .period-form {
-  margin-top: 20px;
-  padding: 22px;
-  border: 1px solid #d5dbe3;
-  border-left: 5px solid #003366;
-  border-radius: 9px;
+  margin-top: 22px;
+  padding: 20px;
+  border: 1px solid #d8dfeb;
+  border-radius: 8px;
   background: #fbfcff;
 }
 
 .period-heading {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.period-heading h3 {
-  margin: 6px 0 0;
-  color: #003366;
-  font-size: 19px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 22px;
 }
 
 .period-label {
-  color: #555555;
   font-size: 12px;
   font-weight: 700;
+  color: #003366;
   letter-spacing: 1px;
+}
+
+.period-heading h3 {
+  margin: 5px 0 0;
+  color: #003366;
 }
 
 .duration-badge {
   padding: 7px 10px;
-  border-radius: 6px;
-  background: #e7eff8;
+  border-radius: 20px;
+  background: #e8f1fb;
   color: #003366;
   font-size: 13px;
-  font-weight: 700;
   white-space: nowrap;
+}
+
+.status-message {
+  margin-bottom: 18px;
+  padding: 13px 16px;
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+.error-message {
+  background: #ffe8e8;
+  color: #9b1c1c;
+  border: 1px solid #f0baba;
+}
+
+.success-message {
+  background: #e8f7e9;
+  color: #176b2c;
+  border: 1px solid #b8e1bf;
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin: 24px 0;
+  max-width: 1100px;
+  margin: 0 auto 30px;
 }
 
 .primary-btn {
-  border: none;
-  color: #ffffff;
   background: #003366;
-}
-
-.primary-btn:hover:not(:disabled) {
-  background: #064b8b;
+  color: #ffffff;
 }
 
 .secondary-btn {
-  border: 1px solid #003366;
-  color: #003366;
-  background: #ffffff;
+  background: #e5e7eb;
+  color: #111111;
 }
 
 .primary-btn:disabled,
 .secondary-btn:disabled {
-  opacity: 0.6;
   cursor: not-allowed;
-}
-
-.status-message {
-  margin-bottom: 20px;
-  padding: 14px 16px;
-  border: 1px solid #d5d5d5;
-  border-radius: 7px;
-  background: #ffffff;
-  line-height: 1.6;
-}
-
-.error-message {
-  color: #8a1717;
-  border-color: #d99a9a;
-  background: #fff2f2;
-}
-
-.success-message {
-  color: #185b2a;
-  border-color: #9ac7a5;
-  background: #f0fff3;
+  opacity: 0.6;
 }
 
 @media (max-width: 700px) {
@@ -979,6 +982,7 @@ export default {
   }
 
   .page-header {
+    align-items: flex-start;
     padding: 16px;
   }
 
@@ -991,7 +995,7 @@ export default {
   }
 
   .form-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 1fr;
   }
 
   .full-width {
@@ -999,11 +1003,7 @@ export default {
   }
 
   .period-form {
-    padding: 15px;
-  }
-
-  .period-heading {
-    align-items: flex-start;
+    padding: 14px;
   }
 
   .form-actions {
