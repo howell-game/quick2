@@ -13,6 +13,7 @@ const sequelize = require("./db");  // Import your Sequelize instance
 require("./models/lessonNoteAssociations");
 const { startAllCycles } = require("./utils/timeframeCycles");
 const questionBankRoutes = require("./routes/questionBankRoutes");
+const questionBankV2Routes = require("./routes/questionBankV2Routes");
 const etrendEducationRoutes = require("./routes/etrendEducationRoutes");
 const schemeOfWorkRoutes = require("./routes/schemeOfWorkRoutes");
 const etrendDataRoutes =require("./routes/etrendDataRoutes");
@@ -84,6 +85,7 @@ app.use("/api/lesson-notes", lessonNoteRoutes);
 app.use("/api/users", balanceRoutes);
 app.use("/api/question-bank", questionBankRoutes);
 app.use("/api/etrend-account", etrendAccountRoutes);
+app.use("/api/v2/question-bank", questionBankV2Routes);
 app.use("/api/etrend-education",etrendEducationRoutes);
 app.use("/api/etrend-airtime", etrendAirtimeRoutes);
 app.use("/api/schemes-of-work", schemeOfWorkRoutes);
