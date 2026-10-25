@@ -5,6 +5,8 @@ const { v4: uuidv4 } = require("uuid");
 
 const User = require("../models/User");
 const ETrendAccount = require("../models/ETrendAccount");
+const PayrollBatch = require("../models/PayrollBatch");
+const PayrollItem = require("../models/PayrollItem");
 const ETrendTransfer = require("../models/ETrendTransfer");
 const ETrendDataTransaction =require("../models/ETrendDataTransaction");
 const ETrendAirtimeTransaction = require("../models/ETrendAirtimeTransaction");
@@ -1122,6 +1124,162 @@ router.post("/transfer", async (req, res) => {
   }
 });
 
+async function finalizePayrollBatch(batchId) {
+  const batch = await PayrollBatch.findByPk(batchId);
+
+  if (!batch) return;
+
+  const items = await PayrollItem.findAll({
+    where: { batchId },
+  });
+
+  if (items.length === 0) return;
+
+  const terminal = items.every((item) =>
+    ["SUCCESSFUL", "FAILED"].includes(item.status)
+  );
+
+  let status = "PROCESSING";
+
+  if (terminal) {
+    const successes = items.filter(
+      (item) => item.status === "SUCCESSFUL"
+    ).length;
+
+    if (successes === items.length) {
+      status = "COMPLETED";
+    } else if (successes > 0) {
+      status = "PARTIAL";
+    } else {
+      status = "FAILED";
+    }
+  }
+
+  await batch.update({ status });
+
+  // Do not charge a payroll fee until every salary has a final
+  // outcome. A batch with no successful salary has no fee collected.
+  if (
+    !terminal ||
+    !items.some((item) => item.status === "SUCCESSFUL") ||
+    Number(batch.serviceFee) <= 0 ||
+    batch.feeStatus !== "PENDING"
+  ) {
+    return;
+  }
+
+  const account = await ETrendAccount.findOne({
+    where: { userId: batch.userId },
+  });
+
+  if (!account?.flutterwaveAccountReference) {
+    await batch.update({
+      feeStatus: "FAILED",
+      feeTransferStatus: "ACCOUNT_UNAVAILABLE",
+    });
+
+    return;
+  }
+
+  // Persist the unique reference and claim fee collection BEFORE
+  // calling Flutterwave. Never blindly retry a fee request.
+  const feeReference = `PAYROLL_FEE_${batch.reference}`;
+
+  const [claimed] = await PayrollBatch.update(
+    {
+      feeStatus: "PROCESSING",
+      feeTransferReference: feeReference,
+      feeTransferStatus: "SUBMITTING",
+    },
+    {
+      where: {
+        id: batch.id,
+        feeStatus: "PENDING",
+      },
+    }
+  );
+
+  if (claimed !== 1) return;
+
+  try {
+    const response = await axios.post(
+      "https://api.flutterwave.com/v3/transfers",
+      {
+        account_bank: "flutterwave",
+        account_number: "100660060",
+        amount: Number(batch.serviceFee),
+        currency: "NGN",
+        debit_currency: "NGN",
+        debit_subaccount:
+          account.flutterwaveAccountReference,
+        reference: feeReference,
+        narration: "ETrend Bulk Payroll Service Fee",
+        callback_url:
+          "https://trendgame-backend.onrender.com/api/etrend-account/webhook",
+      },
+      {
+        headers: {
+          Authorization:
+            `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 20000,
+      }
+    );
+
+    const data = response.data?.data;
+    const providerStatus = String(
+      data?.status || "NEW"
+    ).toUpperCase();
+
+    let feeStatus = "PROCESSING";
+
+    if (providerStatus === "SUCCESSFUL") {
+      feeStatus = "CHARGED";
+    } else if (providerStatus === "FAILED") {
+      feeStatus = "FAILED";
+    }
+
+    // The webhook may already have confirmed the fee transfer.
+    // Only update while this record is still PROCESSING.
+    await PayrollBatch.update(
+      {
+        feeTransferId: data?.id
+          ? String(data.id)
+          : null,
+        feeTransferStatus: providerStatus,
+        feeStatus,
+      },
+      {
+        where: {
+          id: batch.id,
+          feeStatus: "PROCESSING",
+        },
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Payroll fee transfer outcome uncertain:",
+      feeReference,
+      error.response?.data || error.message
+    );
+
+    // Do not set PENDING and do not resubmit automatically.
+    // A timeout could occur after Flutterwave accepted the fee.
+    await PayrollBatch.update(
+      {
+        feeTransferStatus: "OUTCOME_UNCERTAIN",
+      },
+      {
+        where: {
+          id: batch.id,
+          feeStatus: "PROCESSING",
+        },
+      }
+    );
+  }
+}
+
 
 router.post("/webhook", async (req, res) => {
   try {
@@ -1343,6 +1501,133 @@ router.post("/webhook", async (req, res) => {
       // Do not process another ETrend fee.
       return res.sendStatus(200);
     }
+
+
+    // ----------------------------------------------------------
+    // PAYROLL SERVICE FEE TRANSFER WEBHOOK
+    // ----------------------------------------------------------
+
+    const payrollFeeBatch = await PayrollBatch.findOne({
+      where: {
+        feeTransferReference: reference,
+      },
+    });
+
+    if (payrollFeeBatch) {
+      console.log("Payroll service-fee transfer webhook received.");
+
+      // Never overwrite an already-final fee result.
+      if (["CHARGED", "FAILED"].includes(payrollFeeBatch.feeStatus)) {
+        console.log(
+          "Payroll fee already has a final status:",
+          payrollFeeBatch.feeStatus
+        );
+
+        return res.sendStatus(200);
+      }
+
+      const feeStatusFromProvider = transferStatus;
+
+      let feeStatus = "PROCESSING";
+
+      if (feeStatusFromProvider === "SUCCESSFUL") {
+        feeStatus = "CHARGED";
+      } else if (feeStatusFromProvider === "FAILED") {
+        feeStatus = "FAILED";
+      }
+
+      // Atomic guard against duplicate/out-of-order webhook updates.
+      await PayrollBatch.update(
+        {
+          feeTransferId: transferId
+            ? String(transferId)
+            : payrollFeeBatch.feeTransferId,
+
+          feeTransferStatus: feeStatusFromProvider,
+          feeStatus,
+        },
+        {
+          where: {
+            id: payrollFeeBatch.id,
+            feeStatus: {
+              [Op.notIn]: ["CHARGED", "FAILED"],
+            },
+          },
+        }
+      );
+
+      console.log("Payroll fee status processed:", feeStatus);
+
+      return res.sendStatus(200);
+    }
+
+
+    // ----------------------------------------------------------
+    // PAYROLL SALARY TRANSFER WEBHOOK
+    // ----------------------------------------------------------
+
+    const payrollItem = await PayrollItem.findOne({
+      where: {
+        transferReference: reference,
+      },
+    });
+
+    if (payrollItem) {
+      console.log("Payroll salary transfer webhook received.");
+
+      const providerStatus = transferStatus;
+
+      let itemStatus = "PROCESSING";
+
+      if (providerStatus === "SUCCESSFUL") {
+        itemStatus = "SUCCESSFUL";
+      } else if (providerStatus === "FAILED") {
+        itemStatus = "FAILED";
+      }
+
+      const updateFields = {
+        flutterwaveTransferId: transferId
+          ? String(transferId)
+          : payrollItem.flutterwaveTransferId,
+      };
+
+      if (["SUCCESSFUL", "FAILED"].includes(itemStatus)) {
+        updateFields.status = itemStatus;
+        updateFields.completedAt = new Date();
+
+        if (itemStatus === "FAILED") {
+          updateFields.failureReason =
+            transfer.complete_message ||
+            transfer.message ||
+            "Flutterwave reported a failed salary transfer.";
+        }
+      } else if (
+        !["SUCCESSFUL", "FAILED"].includes(payrollItem.status)
+      ) {
+        updateFields.status = "PROCESSING";
+      }
+
+      // Only update a salary item that has not already reached
+      // a final status. This also protects against concurrent webhooks.
+      if (!["SUCCESSFUL", "FAILED"].includes(payrollItem.status)) {
+        await PayrollItem.update(updateFields, {
+          where: {
+            id: payrollItem.id,
+            status: {
+              [Op.notIn]: ["SUCCESSFUL", "FAILED"],
+            },
+          },
+        });
+      }
+
+      // Recalculate the batch and determine whether the one-time
+      // payroll service fee can now be collected.
+      await finalizePayrollBatch(payrollItem.batchId);
+
+      return res.sendStatus(200);
+    }
+
+
 
         // ==========================================================
     // 5B. CHECK IF THIS IS AN ETREND AIRTIME SETTLEMENT

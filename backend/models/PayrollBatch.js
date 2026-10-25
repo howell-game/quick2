@@ -42,6 +42,28 @@ const PayrollBatch = sequelize.define(
       allowNull: false,
     },
 
+    feeStatus: {
+  type: DataTypes.STRING,
+  allowNull: false,
+  defaultValue: "PENDING",
+},
+
+feeTransferReference: {
+  type: DataTypes.STRING,
+  allowNull: true,
+  unique: true,
+},
+
+feeTransferId: {
+  type: DataTypes.STRING,
+  allowNull: true,
+},
+
+feeTransferStatus: {
+  type: DataTypes.STRING,
+  allowNull: true,
+},
+
     status: {
       type: DataTypes.ENUM(
         "DRAFT",

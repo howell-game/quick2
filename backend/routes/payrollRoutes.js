@@ -7,7 +7,9 @@ const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const User = require("../models/User");
 const Teacher = require("../models/Teacher");
-
+const axios = require("axios");
+const ETrendAccount = require("../models/ETrendAccount");
+const { resolveAccount, transfer,} = require("../services/flutterwaveService");
 const crypto = require("crypto");
 const sequelize = require("../db");
 const PayrollBatch = require("../models/PayrollBatch");
@@ -271,6 +273,61 @@ function calculatePayrollFee(totalCents) {
 
 function naira(cents) {
   return (cents / 100).toFixed(2);
+}
+
+// Estimate the provider transfer fee using the same schedule
+// currently used by the ETrend withdrawal route.
+function estimateFlutterwaveFee(amount) {
+  if (amount <= 5000) return 10;
+  if (amount <= 50000) return 25;
+  return 50;
+}
+
+async function getAvailableBalance(account) {
+  if (!account?.flutterwaveAccountReference) {
+    throw new Error("Flutterwave account reference is missing.");
+  }
+
+  const response = await axios.get(
+    `https://api.flutterwave.com/v3/payout-subaccounts/${account.flutterwaveAccountReference}/balances`,
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      params: {
+        currency: "NGN",
+      },
+      timeout: 20000,
+    }
+  );
+
+  const data = response.data?.data;
+
+  let balanceData;
+
+  if (Array.isArray(data)) {
+    balanceData = data.find(
+      (item) =>
+        String(item.currency).toUpperCase() === "NGN"
+    );
+  } else {
+    balanceData = data;
+  }
+
+  const available = Number(
+    balanceData?.available ??
+    balanceData?.available_balance
+  );
+
+  if (!Number.isFinite(available) || available < 0) {
+    throw new Error(
+      "Unable to verify the available NGN balance."
+    );
+  }
+
+  return available;
 }
 
 // POST /api/payroll/batches
@@ -578,5 +635,442 @@ router.get("/batches/:id", async (req, res) => {
   }
 });
 
+
+// POST /api/payroll/batches/:id/execute
+// Initiates each salary transfer exactly once from this endpoint.
+// A draft is claimed before any transfer is submitted.
+router.post("/batches/:id/execute", async (req, res) => {
+  let batch;
+
+  try {
+    const userId = req.user.userId;
+
+    await getVerifiedUser(userId);
+
+    const batchId = Number(req.params.id);
+
+    if (!Number.isSafeInteger(batchId) || batchId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payroll batch ID.",
+      });
+    }
+
+    batch = await PayrollBatch.findOne({
+      where: {
+        id: batchId,
+        userId,
+      },
+    });
+
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: "Payroll batch not found.",
+      });
+    }
+
+    if (batch.status !== "DRAFT") {
+      return res.status(409).json({
+        success: false,
+        message:
+          `This payroll batch cannot be executed because its status is ${batch.status}.`,
+        batchStatus: batch.status,
+      });
+    }
+
+    const account = await ETrendAccount.findOne({
+      where: { userId },
+    });
+
+    if (
+      !account ||
+      !account.flutterwaveAccountReference
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Your ETrend Flutterwave account is unavailable.",
+      });
+    }
+
+    const items = await PayrollItem.findAll({
+      where: { batchId: batch.id },
+      order: [["id", "ASC"]],
+    });
+
+    if (
+      items.length === 0 ||
+      items.length !== batch.teacherCount
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "The payroll batch has missing or invalid salary items.",
+      });
+    }
+
+    if (
+      items.some((item) => item.status !== "PENDING")
+    ) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "One or more salary items have already been processed. Contact support before proceeding.",
+      });
+    }
+
+    const salaryTotal = items.reduce(
+      (sum, item) => sum + Number(item.amount),
+      0
+    );
+
+    if (
+      !Number.isFinite(salaryTotal) ||
+      salaryTotal <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payroll total.",
+      });
+    }
+
+    // ETrend's fixed payroll fee is charged once per batch.
+    const payrollFee = Number(batch.serviceFee);
+
+    if (!Number.isFinite(payrollFee) || payrollFee < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payroll service fee.",
+      });
+    }
+
+    // Estimate the provider fee for every salary transfer,
+    // plus the separate transfer used to collect ETrend's fee.
+    const estimatedTransferFees = items.reduce(
+      (sum, item) =>
+        sum + estimateFlutterwaveFee(Number(item.amount)),
+      0
+    );
+
+    const estimatedFeeCollectionTransferFee =
+      payrollFee > 0
+        ? estimateFlutterwaveFee(payrollFee)
+        : 0;
+
+    const estimatedRequired =
+      salaryTotal +
+      payrollFee +
+      estimatedTransferFees +
+      estimatedFeeCollectionTransferFee;
+
+    let availableBalance;
+
+    try {
+      availableBalance = await getAvailableBalance(account);
+    } catch (balanceError) {
+      console.error(
+        "Payroll balance check failed:",
+        balanceError.response?.data || balanceError.message
+      );
+
+      return res.status(502).json({
+        success: false,
+        message:
+          "Unable to verify your available ETrend balance. No salary transfers were initiated.",
+      });
+    }
+
+    if (availableBalance < estimatedRequired) {
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient ETrend balance for this payroll.",
+        breakdown: {
+          salaryTotal: salaryTotal.toFixed(2),
+          etrendServiceFee: payrollFee.toFixed(2),
+          estimatedFlutterwaveFees: (
+            estimatedTransferFees +
+            estimatedFeeCollectionTransferFee
+          ).toFixed(2),
+          estimatedTotalRequired: estimatedRequired.toFixed(2),
+          availableBalance: availableBalance.toFixed(2),
+        },
+      });
+    }
+
+    // Atomically claim the batch. A concurrent execution request
+    // must not also be allowed to initiate the same salaries.
+    const claimed = await sequelize.transaction(
+      async (transaction) => {
+        const lockedBatch = await PayrollBatch.findOne({
+          where: {
+            id: batch.id,
+            userId,
+          },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+
+        if (!lockedBatch || lockedBatch.status !== "DRAFT") {
+          return false;
+        }
+
+        const lockedItems = await PayrollItem.findAll({
+          where: { batchId: lockedBatch.id },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+
+        if (
+          lockedItems.length !== items.length ||
+          lockedItems.some(
+            (item) => item.status !== "PENDING"
+          )
+        ) {
+          return false;
+        }
+
+        await lockedBatch.update(
+          { status: "PROCESSING" },
+          { transaction }
+        );
+
+        return true;
+      }
+    );
+
+    if (!claimed) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "This payroll batch has already been claimed or changed. Refresh its status before proceeding.",
+      });
+    }
+
+    const results = [];
+
+    // Submit sequentially to avoid launching up to 100 transfers
+    // simultaneously. Every item has a pre-generated unique reference.
+    for (const item of items) {
+      const [claimedItemCount] = await PayrollItem.update(
+        { status: "PROCESSING" },
+        {
+          where: {
+            id: item.id,
+            batchId: batch.id,
+            status: "PENDING",
+          },
+        }
+      );
+
+      if (claimedItemCount !== 1) {
+        results.push({
+          itemId: item.id,
+          teacherName: item.teacherName,
+          status: "NOT_SUBMITTED",
+          message: "The item could not be claimed safely.",
+        });
+
+        continue;
+      }
+
+      const payload = {
+        account_bank: String(item.bankCode),
+        account_number: String(item.accountNumber),
+        amount: Number(item.amount),
+        currency: "NGN",
+        debit_currency: "NGN",
+        debit_subaccount: account.flutterwaveAccountReference,
+        reference: item.transferReference,
+        narration: `ETrend Salary - ${item.teacherName}`.slice(
+          0,
+          100
+        ),
+      };
+
+      try {
+        const response = await transfer(payload);
+        const transferData = response?.data;
+
+        if (
+          response?.status !== "success" ||
+          !transferData
+        ) {
+          // An explicit provider rejection is recorded as failed.
+          // The unique reference remains stored for investigation.
+          await PayrollItem.update(
+            {
+              status: "FAILED",
+              failureReason:
+                response?.message ||
+                "Flutterwave rejected the transfer request.",
+              completedAt: new Date(),
+            },
+            {
+              where: {
+                id: item.id,
+                status: "PROCESSING",
+              },
+            }
+          );
+
+          results.push({
+            itemId: item.id,
+            teacherName: item.teacherName,
+            status: "FAILED",
+            message:
+              response?.message ||
+              "Flutterwave rejected the transfer request.",
+          });
+
+          continue;
+        }
+
+        const providerStatus = String(
+          transferData.status || "NEW"
+        ).toUpperCase();
+
+        let itemStatus = "PROCESSING";
+
+        if (providerStatus === "SUCCESSFUL") {
+          itemStatus = "SUCCESSFUL";
+        } else if (providerStatus === "FAILED") {
+          itemStatus = "FAILED";
+        }
+
+        const updateFields = {
+          flutterwaveTransferId: transferData.id
+            ? String(transferData.id)
+            : null,
+          status: itemStatus,
+        };
+
+        if (
+          itemStatus === "SUCCESSFUL" ||
+          itemStatus === "FAILED"
+        ) {
+          updateFields.completedAt = new Date();
+        }
+
+        if (itemStatus === "FAILED") {
+          updateFields.failureReason =
+            transferData.complete_message ||
+            transferData.message ||
+            "Flutterwave reported a failed transfer.";
+        }
+
+        // Do not overwrite a terminal status already recorded
+        // by a webhook that arrived before this API response.
+        await PayrollItem.update(updateFields, {
+          where: {
+            id: item.id,
+            status: "PROCESSING",
+          },
+        });
+
+        results.push({
+          itemId: item.id,
+          teacherName: item.teacherName,
+          reference: item.transferReference,
+          transferId: transferData.id
+            ? String(transferData.id)
+            : null,
+          status: itemStatus,
+        });
+      } catch (transferError) {
+        console.error(
+          "Payroll transfer request error:",
+          item.transferReference,
+          transferError.response?.data ||
+            transferError.message
+        );
+
+        // A timeout or network error can happen after Flutterwave
+        // accepted the transfer. Leave it PROCESSING; do not retry.
+        await PayrollItem.update(
+          {
+            failureReason:
+              "Transfer outcome is uncertain. Reconcile with Flutterwave before retrying.",
+          },
+          {
+            where: {
+              id: item.id,
+              status: "PROCESSING",
+            },
+          }
+        );
+
+        results.push({
+          itemId: item.id,
+          teacherName: item.teacherName,
+          reference: item.transferReference,
+          status: "PROCESSING",
+          message:
+            "The transfer outcome is uncertain. Do not resubmit this salary.",
+        });
+      }
+    }
+
+    const updatedItems = await PayrollItem.findAll({
+      where: { batchId: batch.id },
+      order: [["id", "ASC"]],
+    });
+
+    const allTerminal = updatedItems.every((item) =>
+      ["SUCCESSFUL", "FAILED"].includes(item.status)
+    );
+
+    let newBatchStatus = "PROCESSING";
+
+    if (allTerminal) {
+      const successCount = updatedItems.filter(
+        (item) => item.status === "SUCCESSFUL"
+      ).length;
+
+      if (successCount === updatedItems.length) {
+        newBatchStatus = "COMPLETED";
+      } else if (successCount > 0) {
+        newBatchStatus = "PARTIAL";
+      } else {
+        newBatchStatus = "FAILED";
+      }
+    }
+
+    // Update only the batch state here. The webhook will handle
+    // fee collection after transfer outcomes are confirmed.
+    await PayrollBatch.update(
+      { status: newBatchStatus },
+      {
+        where: {
+          id: batch.id,
+          status: "PROCESSING",
+        },
+      }
+    );
+
+    const updatedBatch = await PayrollBatch.findByPk(batch.id);
+
+    return res.json({
+      success: true,
+      message:
+        "Payroll transfers have been submitted. Check each item for its latest status.",
+      batch: updatedBatch,
+      items: updatedItems,
+      submissionResults: results,
+      feeCollectionStatus: updatedBatch.feeStatus,
+    });
+  } catch (error) {
+    console.error(
+      "Execute payroll batch:",
+      error.response?.data || error.message
+    );
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message:
+        "Unable to execute payroll safely. Check the batch and transfer references before trying again.",
+    });
+  }
+});
 
 module.exports = router;
