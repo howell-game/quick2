@@ -15,11 +15,6 @@ const sequelize = require("../db");
 const PayrollBatch = require("../models/PayrollBatch");
 const PayrollItem = require("../models/PayrollItem");
 
-
-const {
-  resolveAccount,
-} = require("../services/flutterwaveService");
-
 const {
   normalizeStatus,
 } = require("../utils/normalize");
