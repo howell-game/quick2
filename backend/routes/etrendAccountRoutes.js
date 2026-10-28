@@ -12,6 +12,9 @@ const ETrendDataTransaction =require("../models/ETrendDataTransaction");
 const ETrendAirtimeTransaction = require("../models/ETrendAirtimeTransaction");
 const ETrendTVTransaction = require("../models/ETrendTVTransaction");
 const ETrendElectricityTransaction = require("../models/ETrendElectricityTransaction");
+const Transaction = require("../models/Transaction");
+const sequelize = require("../db");
+const { getTransfer } = require("../services/flutterwaveService");
 
 
 // ==========================================
@@ -1503,6 +1506,427 @@ router.post("/webhook", async (req, res) => {
     }
 
 
+    
+/* ETrend Pawn Withdrawal Settlement
+ *
+ * Successful transfer: keep the original balance deduction.
+ * Failed/reversed transfer: refund the deduction exactly once.
+ */
+
+const pawnWithdrawal = await Transaction.findOne({
+  where: {
+    reference,
+    transactionType: "withdrawal",
+    paymentType: "etrend_pawn_withdrawal",
+  },
+});
+
+if (pawnWithdrawal) {
+  try {
+    const finalStatuses = ["successful", "failed", "cancelled"];
+
+    if (finalStatuses.includes(
+      String(pawnWithdrawal.status).toLowerCase()
+    )) {
+      return res.status(200).json({
+        received: true,
+        message: "Withdrawal already settled.",
+      });
+    }
+
+    const providerTransferId =
+      transferId || pawnWithdrawal.flutterwaveId;
+
+    if (!providerTransferId) {
+      console.error(
+        "Pawn withdrawal has no Flutterwave transfer ID:",
+        reference
+      );
+
+      // Do not refund an unverified transfer.
+      return res.status(500).json({
+        error: "Transfer ID unavailable; reconciliation required.",
+      });
+    }
+
+    // Verify the transfer directly with Flutterwave.
+    const verificationResponse = await getTransfer(
+      String(providerTransferId)
+    );
+
+    const providerTransfer = verificationResponse?.data;
+
+    if (!providerTransfer) {
+      throw new Error("Flutterwave returned no transfer details.");
+    }
+
+    if (
+      String(providerTransfer.reference || "") !== String(reference)
+    ) {
+      console.error(
+        "Pawn withdrawal reference mismatch:",
+        reference
+      );
+
+      return res.status(400).json({
+        error: "Transfer reference mismatch.",
+      });
+    }
+
+    if (
+      pawnWithdrawal.flutterwaveId &&
+      String(pawnWithdrawal.flutterwaveId) !==
+        String(providerTransfer.id)
+    ) {
+      console.error(
+        "Pawn withdrawal transfer ID mismatch:",
+        reference
+      );
+
+      return res.status(400).json({
+        error: "Transfer ID mismatch.",
+      });
+    }
+
+    const expectedAmount = Math.round(
+      Number(pawnWithdrawal.amount) * 100
+    );
+
+    const actualAmount = Math.round(
+      Number(providerTransfer.amount) * 100
+    );
+
+    if (
+      !Number.isFinite(expectedAmount) ||
+      !Number.isFinite(actualAmount) ||
+      expectedAmount <= 0 ||
+      actualAmount !== expectedAmount ||
+      String(providerTransfer.currency || "").toUpperCase() !== "NGN"
+    ) {
+      console.error(
+        "Pawn withdrawal amount/currency mismatch:",
+        reference
+      );
+
+      return res.status(400).json({
+        error: "Transfer amount or currency mismatch.",
+      });
+    }
+
+    const providerStatus = String(
+      providerTransfer.status || ""
+    ).trim().toUpperCase();
+
+    if (
+      !["SUCCESSFUL", "FAILED", "REVERSED"].includes(providerStatus)
+    ) {
+      return res.status(200).json({
+        received: true,
+        message: "Transfer is not in a final state.",
+      });
+    }
+
+    await sequelize.transaction(async (dbTransaction) => {
+      // Lock the transaction to stop duplicate webhook refunds.
+      const lockedWithdrawal = await Transaction.findOne({
+        where: {
+          id: pawnWithdrawal.id,
+          transactionType: "withdrawal",
+          paymentType: "etrend_pawn_withdrawal",
+        },
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE,
+      });
+
+      if (!lockedWithdrawal) {
+        throw new Error("Withdrawal record disappeared.");
+      }
+
+      const currentStatus = String(
+        lockedWithdrawal.status
+      ).toLowerCase();
+
+      if (finalStatuses.includes(currentStatus)) {
+        return;
+      }
+
+      if (providerStatus === "SUCCESSFUL") {
+        // The Pawns were already deducted when the request was made.
+        // Never deduct them a second time.
+        lockedWithdrawal.status = "successful";
+        lockedWithdrawal.verified = true;
+        lockedWithdrawal.verifiedAt = new Date();
+        lockedWithdrawal.paidAt = new Date();
+        lockedWithdrawal.flutterwaveId = String(
+          providerTransfer.id
+        );
+
+        await lockedWithdrawal.save({
+          transaction: dbTransaction,
+        });
+
+        return;
+      }
+
+      // A confirmed failure or reversal must refund only once.
+      const metadata = lockedWithdrawal.metadata || {};
+
+      if (metadata.refundApplied === true) {
+        lockedWithdrawal.status = "failed";
+        lockedWithdrawal.verified = true;
+        lockedWithdrawal.verifiedAt = new Date();
+
+        await lockedWithdrawal.save({
+          transaction: dbTransaction,
+        });
+
+        return;
+      }
+
+      const user = await User.findOne({
+        where: { userId: lockedWithdrawal.userId },
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE,
+      });
+
+      if (!user) {
+        throw new Error(
+          "User not found; cannot refund Pawn withdrawal."
+        );
+      }
+
+      const currentBalance = Number(user.balance || 0);
+      const refundAmount = Number(lockedWithdrawal.amount);
+
+      if (
+        !Number.isFinite(currentBalance) ||
+        !Number.isFinite(refundAmount) ||
+        refundAmount <= 0
+      ) {
+        throw new Error("Invalid balance or refund amount.");
+      }
+
+      user.balance = (currentBalance + refundAmount).toFixed(2);
+
+      await user.save({
+        transaction: dbTransaction,
+      });
+
+      lockedWithdrawal.metadata = {
+        ...metadata,
+        debitApplied: true,
+        refundApplied: true,
+        refundReason: providerStatus.toLowerCase(),
+        refundedAt: new Date().toISOString(),
+      };
+
+      lockedWithdrawal.status = "failed";
+      lockedWithdrawal.verified = true;
+      lockedWithdrawal.verifiedAt = new Date();
+      lockedWithdrawal.flutterwaveId = String(
+        providerTransfer.id
+      );
+
+      await lockedWithdrawal.save({
+        transaction: dbTransaction,
+      });
+    });
+
+    return res.status(200).json({
+      received: true,
+      message: "Pawn withdrawal webhook processed.",
+    });
+  } catch (error) {
+    console.error(
+      "Pawn withdrawal webhook settlement failed:",
+      error
+    );
+
+    // Let Flutterwave retry where supported, and reconcile if necessary.
+    return res.status(500).json({
+      error: "Pawn withdrawal settlement failed.",
+    });
+  }
+}
+
+// If this is not a Pawn withdrawal, continue into your existing
+// withdrawal, payroll, and other transfer handlers.
+
+
+    
+    // ----------------------------------------------------------
+    // ETREND WALLET FUNDING CONFIRMATION
+    // ----------------------------------------------------------
+
+    const deposit = await Transaction.findOne({
+      where: {
+        reference,
+        transactionType: "deposit",
+      },
+    });
+
+    if (deposit) {
+      console.log("Wallet funding webhook received:", reference);
+
+      // A final transaction must never credit the wallet again.
+      if (["successful", "failed", "cancelled"].includes(deposit.status)) {
+        return res.sendStatus(200);
+      }
+
+      const providerTransferId =
+        transferId || deposit.flutterwaveId;
+
+      if (!providerTransferId) {
+        console.error(
+          "Deposit has no Flutterwave transfer ID:",
+          reference
+        );
+        return res.sendStatus(200);
+      }
+
+      let providerTransfer;
+
+      try {
+        // Independently retrieve the transfer from Flutterwave.
+        const verificationResponse =
+          await getTransfer(providerTransferId);
+
+        providerTransfer =
+          verificationResponse?.data;
+
+        if (
+          !providerTransfer ||
+          String(providerTransfer.reference || "") !== reference
+        ) {
+          console.error(
+            "Deposit reference verification failed:",
+            reference
+          );
+          return res.sendStatus(200);
+        }
+      } catch (verificationError) {
+        console.error(
+          "Could not verify deposit with Flutterwave:",
+          verificationError.response?.data ||
+            verificationError.message
+        );
+
+        // Request a webhook retry rather than crediting an
+        // unverified transfer.
+        return res.sendStatus(500);
+      }
+
+      const providerStatus = String(
+        providerTransfer.status || ""
+      ).trim().toUpperCase();
+
+      const expectedKobo = Math.round(
+        Number(deposit.amount) * 100
+      );
+
+      const actualKobo = Math.round(
+        Number(providerTransfer.amount) * 100
+      );
+
+      if (
+        !Number.isFinite(expectedKobo) ||
+        !Number.isFinite(actualKobo) ||
+        expectedKobo <= 0 ||
+        actualKobo !== expectedKobo
+      ) {
+        console.error(
+          "Deposit amount verification failed:",
+          reference
+        );
+        return res.sendStatus(200);
+      }
+
+      if (
+        providerStatus !== "SUCCESSFUL" &&
+        providerStatus !== "FAILED"
+      ) {
+        return res.sendStatus(200);
+      }
+
+      await sequelize.transaction(async (dbTransaction) => {
+        const lockedDeposit = await Transaction.findOne({
+          where: { id: deposit.id },
+          transaction: dbTransaction,
+          lock: dbTransaction.LOCK.UPDATE,
+        });
+
+        if (!lockedDeposit) {
+          throw new Error("Deposit transaction not found.");
+        }
+
+        // Check the latest status while holding the row lock.
+        if (
+          ["successful", "failed", "cancelled"].includes(
+            lockedDeposit.status
+          )
+        ) {
+          return;
+        }
+
+        if (providerStatus === "FAILED") {
+          lockedDeposit.status = "failed";
+          lockedDeposit.verified = true;
+          lockedDeposit.verifiedAt = new Date();
+          lockedDeposit.flutterwaveId =
+            String(providerTransferId);
+
+          await lockedDeposit.save({
+            transaction: dbTransaction,
+          });
+
+          return;
+        }
+
+        const user = await User.findOne({
+          where: { userId: lockedDeposit.userId },
+          transaction: dbTransaction,
+          lock: dbTransaction.LOCK.UPDATE,
+        });
+
+        if (!user) {
+          throw new Error(
+            "User not found for confirmed wallet funding."
+          );
+        }
+
+        const creditAmount = Number(lockedDeposit.amount);
+
+        if (
+          !Number.isFinite(creditAmount) ||
+          creditAmount <= 0
+        ) {
+          throw new Error("Invalid wallet funding amount.");
+        }
+
+        // Increment the existing balance exactly once.
+        // The increment and status update share one DB transaction.
+        await user.increment("balance", {
+          by: creditAmount,
+          transaction: dbTransaction,
+        });
+
+        lockedDeposit.status = "successful";
+        lockedDeposit.verified = true;
+        lockedDeposit.verifiedAt = new Date();
+        lockedDeposit.paidAt = new Date();
+        lockedDeposit.flutterwaveId =
+          String(providerTransferId);
+
+        await lockedDeposit.save({
+          transaction: dbTransaction,
+        });
+      });
+
+      return res.sendStatus(200);
+    }
+
+
+
     // ----------------------------------------------------------
     // PAYROLL SERVICE FEE TRANSFER WEBHOOK
     // ----------------------------------------------------------
@@ -1560,6 +1984,8 @@ router.post("/webhook", async (req, res) => {
 
       return res.sendStatus(200);
     }
+
+    
 
 
     // ----------------------------------------------------------
