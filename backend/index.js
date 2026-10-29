@@ -58,8 +58,12 @@ app.use(cors({
     "http://localhost:5173",  // ✅ Allow Vue.js development frontend
     "http://localhost:3000"   // ✅ Allow local testing with serve -s dist
   ],
-  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-  allowedHeaders: "Content-Type,Authorization",
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "Idempotency-Key"
+  ],
   credentials: true
 }));
 
